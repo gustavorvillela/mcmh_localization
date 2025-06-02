@@ -1,0 +1,17 @@
+<launch>
+  <!-- Configuração do modelo do TurtleBot3 -->
+  <arg name="model" default="burger"/>
+  <env name="TURTLEBOT3_MODEL" value="$(arg model)"/>
+
+  <!-- Gazebo com mapa e TurtleBot -->
+  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_world.launch" />
+
+  <!-- Mapeamento do mundo para o frame do mapa -->
+  <node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0 0 0 0 0 0 map odom 100" />
+
+  <!-- Nó do estimador baseado em MCMC -->
+  <node name="mcmh_localizer" pkg="mcmh_localization" type="mcmh_localizer.py" output="screen" />
+
+  <!-- RViz com visualização do mapa, robot e partículas -->
+  <node pkg="rviz" type="rviz" name="rviz" args="-d $(find mcmh_localization)/rviz/mcmh_view.rviz" />
+</launch>
