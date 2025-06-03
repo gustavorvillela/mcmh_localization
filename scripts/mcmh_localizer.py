@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 import rospy
 import numpy as np
+import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
 from visualization_msgs.msg import Marker, MarkerArray
 import tf
 import rospkg
 import cv2
 from scipy.ndimage import distance_transform_edt
 import yaml
+import tf2_ros
 
 class MCMHLocalizer:
     def __init__(self):
@@ -26,6 +28,11 @@ class MCMHLocalizer:
         rospy.Subscriber('/odom', Odometry, self.odom_callback)
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseStamped, queue_size=1)
         self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=1)
+
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster()
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
 
 
         rospy.spin()
@@ -78,6 +85,10 @@ class MCMHLocalizer:
             marker_array.markers.append(marker)
         self.marker_pub.publish(marker_array)
 
+    #================================================
+    # LiDAR
+    #================================================
+
     def lidar_callback(self, msg):
         # Aplicar Metropolis-Hastings aqui
         self.update_particles_mh(msg)
@@ -124,7 +135,73 @@ class MCMHLocalizer:
                 total_prob *= 1e-3  # penalidade para fora do mapa
 
         return total_prob
+    
+    #===============================
+    #Broadcaster
+    #===============================
+    
 
+    def broadcast_transform(self,trans, rot):
+
+        t = TransformStamped()
+        t.header.stamp = rospy.Time.now()
+        t.header.frame_id = "map"
+        t.child_frame_id = "odom"
+        t.transform.translation.x = trans[0]
+        t.transform.translation.y = trans[1]
+        t.transform.translation.z = 0.0
+        t.transform.rotation.x = rot[0]
+        t.transform.rotation.y = rot[1]
+        t.transform.rotation.z = rot[2]
+        t.transform.rotation.w = rot[3]
+
+
+        self.tf_broadcaster.sendTransform(t)
+
+
+    def compute_map_to_odom_tf(self,estimated_pose, odom_to_base):
+
+        # Pose estimada do robô (em map)
+        t_map_base = tft.translation_matrix([
+            estimated_pose.pose.position.x,
+            estimated_pose.pose.position.y,
+            0.0
+        ])
+        r_map_base = tft.quaternion_matrix([
+            estimated_pose.pose.orientation.x,
+            estimated_pose.pose.orientation.y,
+            estimated_pose.pose.orientation.z,
+            estimated_pose.pose.orientation.w
+        ])
+        T_map_base = np.dot(t_map_base, r_map_base)
+
+        # Transformação odom -> base
+        t_odom_base = tft.translation_matrix([
+            odom_to_base.transform.translation.x,
+            odom_to_base.transform.translation.y,
+            0.0
+        ])
+        r_odom_base = tft.quaternion_matrix([
+            odom_to_base.transform.rotation.x,
+            odom_to_base.transform.rotation.y,
+            odom_to_base.transform.rotation.z,
+            odom_to_base.transform.rotation.w
+        ])
+        T_odom_base = np.dot(t_odom_base, r_odom_base)
+
+        # T_map_odom = T_map_base * inv(T_odom_base)
+        T_map_odom = np.dot(T_map_base, np.linalg.inv(T_odom_base))
+        trans = tft.translation_from_matrix(T_map_odom)
+        rot = tft.quaternion_from_matrix(T_map_odom)
+
+        return trans, rot
+
+    def get_odom_to_base(self):
+        try:
+            transform = self.tf_buffer.lookup_transform("odom", "base_footprint", rospy.Time(0), rospy.Duration(1.0))
+            return transform
+        except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
+            return None
 
     def publish_estimate(self):
         mean_pose = np.mean(self.particles, axis=0)
@@ -136,6 +213,9 @@ class MCMHLocalizer:
         pose.pose.orientation.z = np.sin(mean_pose[2] / 2.0)
         pose.pose.orientation.w = np.cos(mean_pose[2] / 2.0)
         self.pose_pub.publish(pose)
+        odom_to_base = self.get_odom_to_base()
+        trans, rot = self.compute_map_to_odom_tf(pose,odom_to_base)
+        self.broadcast_transform(trans,rot)
 
 if __name__ == '__main__':
     try:
