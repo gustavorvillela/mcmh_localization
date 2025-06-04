@@ -7,6 +7,15 @@
   <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_house.launch" />
   <include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch" />
 
+  <!-- Teleoperação do TurtleBot-->
+  <include file="$(find turtlebot3_teleop)/launch/turtlebot3_teleop_key.launch" />
+
+  <!-- Carregar mapa -->
+  <arg name="map_file" default="$(find mcmh_localization)/maps/map.yaml"/>
+  <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
+
+
+
   <!-- Nó do estimador baseado em MCMC-->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="mcmh_localizer.py" output="screen" /> 
 
