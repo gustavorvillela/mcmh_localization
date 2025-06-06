@@ -1,0 +1,14 @@
+<launch>
+
+  <!-- Carregar mapa -->
+  <arg name="map_file" default="$(find mcmh_localization)/maps/map.yaml"/>
+  <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
+
+
+
+  <!-- Nó do estimador baseado em MCMC-->
+  <node name="particle_generator" pkg="mcmh_localization" type="particle_generator.py" output="screen" /> 
+
+  <!-- RViz com visualização do mapa, robot e partículas -->
+  <node pkg="rviz" type="rviz" name="rviz"/>
+</launch>
