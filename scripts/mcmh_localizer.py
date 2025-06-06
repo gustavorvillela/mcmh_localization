@@ -16,8 +16,8 @@ class MCMHLocalizer:
         rospy.init_node('mcmh_localizer')
 
         # Parâmetros
-        self.num_particles = 2000
-        self.alpha = [0.4, 0.4, 0.2, 0.2]
+        self.num_particles = 2500
+        self.alpha = [0.004, 0.004, 0.2, 0.2]
         
         # Carrega o mapa
         self.load_map()
@@ -165,7 +165,7 @@ class MCMHLocalizer:
 
     def likelihood(self, scan, pose):
         x, y, theta = pose
-        log_prob = 0.0
+        prob = 0.0
         sigma_hit = 0.2
 
         for i, r in enumerate(scan.ranges[::10]):
@@ -177,16 +177,14 @@ class MCMHLocalizer:
             ly = y + r * np.sin(theta + angle)
 
             mx = int((lx - self.origin.x) / self.resolution)
-            my = int((self.map_data.shape[0] - (ly - self.origin.y))/self.resolution) - 1
+            my = int((ly - self.origin.y) / self.resolution)
 
             if 0 <= mx < self.distance_map.shape[1] and 0 <= my < self.distance_map.shape[0]:
                 dist = self.distance_map[my, mx]
                 prob = np.exp(-0.5 * (dist/sigma_hit)**2) + 1e-9
-                log_prob += np.log(prob)
-            else:
-                log_prob += np.log(1e-3)
 
-        return np.exp(log_prob)
+
+        return prob
 
     def normalize_angle(self, angle):
         return (angle + np.pi) % (2*np.pi) - np.pi
@@ -251,47 +249,6 @@ class MCMHLocalizer:
         self.resample_valid_particles()
         self.publish_particles()
 
-
-    def get_odom_to_base(self):
-        try:
-            return self.tf_buffer.lookup_transform("odom", "base_footprint", rospy.Time(0))
-        except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
-            return None
-
-    def compute_map_to_odom_tf(self,estimated_pose, odom_to_base):
-
-        # 1. Obter T_map_base (pose estimada)
-        T_map_base = tft.quaternion_matrix([
-            estimated_pose.pose.orientation.x,
-            estimated_pose.pose.orientation.y,
-            estimated_pose.pose.orientation.z,
-            estimated_pose.pose.orientation.w
-        ])
-        T_map_base[0:3, 3] = [
-            estimated_pose.pose.position.x,
-            estimated_pose.pose.position.y,
-            0.0
-        ]
-
-        # 2. Obter T_odom_base (da odometria)
-        T_odom_base = tft.quaternion_matrix([
-            odom_to_base.transform.rotation.x,
-            odom_to_base.transform.rotation.y,
-            odom_to_base.transform.rotation.z,
-            odom_to_base.transform.rotation.w
-        ])
-        T_odom_base[0:3, 3] = [
-            odom_to_base.transform.translation.x,
-            odom_to_base.transform.translation.y,
-            0.0
-        ]
-
-        # T_map_odom = T_map_base * inv(T_odom_base)
-        T_map_odom = np.dot(T_map_base, np.linalg.inv(T_odom_base))
-        trans = tft.translation_from_matrix(T_map_odom)
-        rot = tft.quaternion_from_matrix(T_map_odom)
-
-        return trans, rot
     
     def publish_estimate(self):
 
@@ -304,31 +261,7 @@ class MCMHLocalizer:
         pose.pose.orientation.z = np.sin(mean_pose[2] / 2.0)
         pose.pose.orientation.w = np.cos(mean_pose[2] / 2.0)
         self.pose_pub.publish(pose)
-        odom_to_base = self.get_odom_to_base()
-        trans, rot = self.compute_map_to_odom_tf(pose,odom_to_base)
-        self.broadcast_transform(trans,rot)
 
-    #===============================
-    #Broadcaster
-    #===============================
-    
-
-    def broadcast_transform(self,trans, rot):
-
-        t = TransformStamped()
-        t.header.stamp = rospy.Time.now()
-        t.header.frame_id = "map"
-        t.child_frame_id = "odom"
-        t.transform.translation.x = trans[0]
-        t.transform.translation.y = trans[1]
-        t.transform.translation.z = 0.0
-        t.transform.rotation.x = rot[0]
-        t.transform.rotation.y = rot[1]
-        t.transform.rotation.z = rot[2]
-        t.transform.rotation.w = rot[3]
-
-
-        self.tf_broadcaster.sendTransform(t)
 
 if __name__ == '__main__':
     try:
