@@ -70,3 +70,40 @@ def apply_motion_model_parallel(particles, delta, alpha):
     
     return new_particles
 
+
+@njit
+def compute_valid_indices(particles, occupancy_map, map_resolution, origin_x, origin_y):
+    num_particles = particles.shape[0]
+    valid_indices = []
+
+    for i in range(num_particles):
+        x, y = particles[i, 0], particles[i, 1]
+        mx = int((x - origin_x) / map_resolution)
+        my = int((y - origin_y) / map_resolution)
+
+        if 0 <= mx < occupancy_map.shape[1] and 0 <= my < occupancy_map.shape[0]:
+            if occupancy_map[my, mx] == 0:  # livre
+                valid_indices.append(i)
+
+    return np.array(valid_indices, dtype=np.int32)
+
+
+@njit
+def generate_valid_particles(num_particles, min_coords, max_coords,
+                       occupancy_map, map_resolution, origin_x, origin_y):
+    max_trials = num_particles * 10  # limite de tentativas
+    all_particles = np.zeros((max_trials, 3), dtype=np.float32)
+
+    for i in range(max_trials):
+        all_particles[i, 0] = np.random.uniform(min_coords[0], max_coords[0])
+        all_particles[i, 1] = np.random.uniform(min_coords[1], max_coords[1])
+        all_particles[i, 2] = normalize_angle(np.random.uniform(-np.pi, np.pi))
+
+    valid_indices = compute_valid_indices(all_particles, occupancy_map, map_resolution, origin_x, origin_y)
+
+    if len(valid_indices) < num_particles:
+        # fallback: retorna os válidos que conseguiu
+        return all_particles[valid_indices[:num_particles]]
+
+    selected_indices = valid_indices[:num_particles]
+    return all_particles[selected_indices]

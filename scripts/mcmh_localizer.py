@@ -10,15 +10,15 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles
 
 class MCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
 
         # Parâmetros
-        self.num_particles = 2500
-        self.alpha = np.array([0.004, 0.004, 0.2, 0.2], dtype=np.float32)
+        self.num_particles = 5000
+        self.alpha = np.array([0.04, 0.04, 0.2, 0.2], dtype=np.float32)
         
         # Carrega o mapa
         self.load_map()
@@ -53,6 +53,8 @@ class MCMHLocalizer:
         self.resolution = map_msg.info.resolution
         self.origin = map_msg.info.origin.position
         self.origin_np = np.array([self.origin.x, self.origin.y])
+
+        self.occupancy_map = np.where(self.map_data == 0, 0, 100)
         
         # Processa células livres
         free_cells = np.where(self.map_data == 0)
@@ -65,33 +67,14 @@ class MCMHLocalizer:
         self.distance_map = distance_transform_edt(self.map_data == 0) * self.resolution
 
     def initialize_particles(self):
-        # Tenta primeiro com amostragem direta (rápida)
-        try_indices = np.random.choice(len(self.free_cells_coords), 
-                                    size=self.num_particles*2, replace=False)
-        candidates = self.free_cells_coords[try_indices]
-        
-        # Se tiver suficientes, pega as primeiras
-        if len(candidates) >= self.num_particles:
-            particles = candidates[:self.num_particles]
-        else:
-            # Complementa com amostragem uniforme no espaço
-            remaining = self.num_particles - len(candidates)
-            min_coords = np.min(self.free_cells_coords, axis=0)
-            max_coords = np.max(self.free_cells_coords, axis=0)
-            
-            extra_particles = []
-            while len(extra_particles) < remaining:
-                x = np.random.uniform(min_coords[0], max_coords[0])
-                y = np.random.uniform(min_coords[1], max_coords[1])
-                if self.is_valid_position(x, y):
-                    extra_particles.append([x, y])
-            
-            particles = np.vstack([candidates, extra_particles])
-        
-        # Adiciona orientações
-        final_particles = np.zeros((self.num_particles, 3))
-        final_particles[:, :2] = particles[:self.num_particles]
-        final_particles[:, 2] = np.random.uniform(-np.pi, np.pi, self.num_particles)
+
+        min_coords = np.min(self.free_cells_coords, axis=0)
+        max_coords = np.max(self.free_cells_coords, axis=0)
+
+        final_particles = generate_valid_particles(self.num_particles, min_coords, max_coords,
+                                             self.occupancy_map, self.resolution, 
+                                             self.origin_np[0], self.origin_np[1])
+
         
         return final_particles
     
@@ -134,13 +117,17 @@ class MCMHLocalizer:
 
 
     def resample_valid_particles(self):
-        valid_indices = [i for i in range(self.num_particles) 
-                        if self.is_valid_position(*self.particles[i,:2])]
-        
-        if not valid_indices:
+        valid_indices = compute_valid_indices(
+            self.particles,
+            self.occupancy_map,       # 2D numpy array do mapa
+            self.resolution,
+            self.origin_np[0],
+            self.origin_np[1]
+        )
+
+        if len(valid_indices) == 0:
             rospy.logwarn("Reinicializando partículas!")
             self.particles = self.initialize_particles()
-            #self.weights = np.ones(self.num_particles) / self.num_particles
             return
 
         valid_weights = self.weights[valid_indices]
@@ -148,13 +135,15 @@ class MCMHLocalizer:
 
         new_indices = np.random.choice(valid_indices, size=self.num_particles, p=valid_weights)
         self.particles = self.particles[new_indices]
-        #self.weights = np.ones(self.num_particles) / self.num_particles
 
 
     def publish_particles(self):
         marker_array = MarkerArray()
         weights = self.weights
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+
+        cos_half_theta = np.cos(self.particles[:,2] / 2.0)
+        sin_half_theta = np.sin(self.particles[:,2] / 2.0)
         
         for i, p in enumerate(self.particles):
             if not self.is_valid_position(p[0], p[1]):
@@ -174,8 +163,9 @@ class MCMHLocalizer:
             marker.color.b = 1 - norm_weights[i]
             marker.pose.position.x = p[0]
             marker.pose.position.y = p[1]
-            marker.pose.orientation.z = np.sin(p[2]/2)
-            marker.pose.orientation.w = np.cos(p[2]/2)
+            marker.pose.orientation.z = sin_half_theta[i]
+            marker.pose.orientation.w = cos_half_theta[i]
+            
             marker_array.markers.append(marker)
         
         self.marker_pub.publish(marker_array)
@@ -197,7 +187,7 @@ class MCMHLocalizer:
     def compute_motion(self, odom1, odom2):
         dx = odom2[0] - odom1[0]
         dy = odom2[1] - odom1[1]
-        dtheta = self.normalize_angle(odom2[2] - odom1[2])
+        dtheta = normalize_angle(odom2[2] - odom1[2])
 
         rot1 = np.arctan2(dy, dx) - odom1[2]
         trans = np.hypot(dx, dy)
