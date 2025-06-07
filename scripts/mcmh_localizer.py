@@ -5,19 +5,20 @@ from numpy.random import choice
 import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import PoseStamped, TransformStamped, Point
+from geometry_msgs.msg import PoseStamped, Point
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles
 
 class MCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
 
         # Parâmetros
-        self.num_particles = 2500
-        self.alpha = [0.004, 0.004, 0.2, 0.2]
+        self.num_particles = 5000
+        self.alpha = np.array([0.04, 0.04, 0.2, 0.2], dtype=np.float32)
         
         # Carrega o mapa
         self.load_map()
@@ -26,6 +27,8 @@ class MCMHLocalizer:
         self.particles = self.initialize_particles()
         self.particles_prop = np.copy(self.particles)
         self.weights = np.ones(self.num_particles) / self.num_particles
+
+        self.last_odom = None
         
         # Subscribers
         rospy.Subscriber('/scan', LaserScan, self.lidar_callback)
@@ -40,7 +43,7 @@ class MCMHLocalizer:
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
-        self.last_odom = None
+        
         rospy.spin()
 
     def load_map(self):
@@ -49,6 +52,9 @@ class MCMHLocalizer:
         self.map_data = np.array(map_msg.data).reshape((map_msg.info.height, map_msg.info.width))
         self.resolution = map_msg.info.resolution
         self.origin = map_msg.info.origin.position
+        self.origin_np = np.array([self.origin.x, self.origin.y])
+
+        self.occupancy_map = np.where(self.map_data == 0, 0, 100)
         
         # Processa células livres
         free_cells = np.where(self.map_data == 0)
@@ -61,33 +67,14 @@ class MCMHLocalizer:
         self.distance_map = distance_transform_edt(self.map_data == 0) * self.resolution
 
     def initialize_particles(self):
-        # Tenta primeiro com amostragem direta (rápida)
-        try_indices = np.random.choice(len(self.free_cells_coords), 
-                                    size=self.num_particles*2, replace=False)
-        candidates = self.free_cells_coords[try_indices]
-        
-        # Se tiver suficientes, pega as primeiras
-        if len(candidates) >= self.num_particles:
-            particles = candidates[:self.num_particles]
-        else:
-            # Complementa com amostragem uniforme no espaço
-            remaining = self.num_particles - len(candidates)
-            min_coords = np.min(self.free_cells_coords, axis=0)
-            max_coords = np.max(self.free_cells_coords, axis=0)
-            
-            extra_particles = []
-            while len(extra_particles) < remaining:
-                x = np.random.uniform(min_coords[0], max_coords[0])
-                y = np.random.uniform(min_coords[1], max_coords[1])
-                if self.is_valid_position(x, y):
-                    extra_particles.append([x, y])
-            
-            particles = np.vstack([candidates, extra_particles])
-        
-        # Adiciona orientações
-        final_particles = np.zeros((self.num_particles, 3))
-        final_particles[:, :2] = particles[:self.num_particles]
-        final_particles[:, 2] = np.random.uniform(-np.pi, np.pi, self.num_particles)
+
+        min_coords = np.min(self.free_cells_coords, axis=0)
+        max_coords = np.max(self.free_cells_coords, axis=0)
+
+        final_particles = generate_valid_particles(self.num_particles, min_coords, max_coords,
+                                             self.occupancy_map, self.resolution, 
+                                             self.origin_np[0], self.origin_np[1])
+
         
         return final_particles
     
@@ -108,91 +95,55 @@ class MCMHLocalizer:
         nearest = self.free_cells_coords[idx]
         return nearest[0], nearest[1]  # Retorna x,y diretamente
 
-    def apply_motion_model(self, delta):
-        rot1, trans, rot2 = delta
-        a1, a2, a3, a4 = self.alpha
 
-        for i in range(self.num_particles):
-            r1_hat = rot1 + np.random.normal(0, a1*abs(rot1) + a2*abs(trans))
-            t_hat = trans + np.random.normal(0, a3*abs(trans) + a4*(abs(rot1)+abs(rot2)))
-            r2_hat = rot2 + np.random.normal(0, a1*abs(rot2) + a2*abs(trans))
+    def get_angles(self,particles):
 
-            x, y, theta = self.particles[i]
-            x_new = x + t_hat * np.cos(theta + r1_hat)
-            y_new = y + t_hat * np.sin(theta + r1_hat)
-            theta_new = theta + r1_hat + r2_hat
+        return particles.reshape((self.num_particles,3))[:,2]
 
-            if not self.is_valid_position(x_new, y_new):
-                x_new, y_new = self.get_nearest_valid(x_new, y_new)
-            
-            self.particles_prop[i] = [x_new, y_new, self.normalize_angle(theta_new)]
 
     def update_particles_mh(self, scan):
-        for i in range(self.num_particles):
-            x = self.particles[i]
-            x_prime = self.particles_prop[i]
-            
-            if not self.is_valid_position(x_prime[0], x_prime[1]):
-                x_prime[0], x_prime[1] = self.get_nearest_valid(x_prime[0], x_prime[1])
-                x_prime[2] = self.normalize_angle(x_prime[2])
-            
-            p_x = self.likelihood(scan, x)
-            p_x_prime = self.likelihood(scan, x_prime)
 
-            alpha = min(1.0, p_x_prime / p_x) if p_x > 0 else 1.0
-            #alpha = 1
+        scan_ranges = np.array(scan.ranges, dtype=np.float32)
+        angles = self.get_angles(self.particles_prop)
+        
 
-            if np.random.rand() < alpha:
-                self.particles[i] = x_prime
-                self.weights[i] = p_x_prime
+        scores = compute_likelihoods(
+        scan_ranges, angles, self.particles,
+        self.distance_map, self.resolution, self.origin_np
+        )
+
+        
+        self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,scores,self.weights)
+
 
     def resample_valid_particles(self):
-        valid_indices = [i for i in range(self.num_particles) 
-                        if self.is_valid_position(*self.particles[i,:2])]
-        
-        if not valid_indices:
+        valid_indices = compute_valid_indices(
+            self.particles,
+            self.occupancy_map,       # 2D numpy array do mapa
+            self.resolution,
+            self.origin_np[0],
+            self.origin_np[1]
+        )
+
+        if len(valid_indices) == 0:
             rospy.logwarn("Reinicializando partículas!")
             self.particles = self.initialize_particles()
-            self.weights = np.ones(self.num_particles) / self.num_particles
             return
 
         valid_weights = self.weights[valid_indices]
         valid_weights /= np.sum(valid_weights)
-        
-        new_indices = choice(valid_indices, size=self.num_particles, p=valid_weights)
+
+        new_indices = np.random.choice(valid_indices, size=self.num_particles, p=valid_weights)
         self.particles = self.particles[new_indices]
-        self.weights = np.ones(self.num_particles) / self.num_particles
 
-    def likelihood(self, scan, pose):
-        x, y, theta = pose
-        prob = 0.0
-        sigma_hit = 0.2
-
-        for i, r in enumerate(scan.ranges[::10]):
-            if r < scan.range_min or r > scan.range_max:
-                continue
-
-            angle = scan.angle_min + i*10*scan.angle_increment
-            lx = x + r * np.cos(theta + angle)
-            ly = y + r * np.sin(theta + angle)
-
-            mx = int((lx - self.origin.x) / self.resolution)
-            my = int((ly - self.origin.y) / self.resolution)
-
-            if 0 <= mx < self.distance_map.shape[1] and 0 <= my < self.distance_map.shape[0]:
-                dist = self.distance_map[my, mx]
-                prob = np.exp(-0.5 * (dist/sigma_hit)**2) + 1e-9
-
-
-        return prob
-
-    def normalize_angle(self, angle):
-        return (angle + np.pi) % (2*np.pi) - np.pi
 
     def publish_particles(self):
         marker_array = MarkerArray()
         weights = self.weights
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+
+        cos_half_theta = np.cos(self.particles[:,2] / 2.0)
+        sin_half_theta = np.sin(self.particles[:,2] / 2.0)
         
         for i, p in enumerate(self.particles):
             if not self.is_valid_position(p[0], p[1]):
@@ -212,8 +163,9 @@ class MCMHLocalizer:
             marker.color.b = 1 - norm_weights[i]
             marker.pose.position.x = p[0]
             marker.pose.position.y = p[1]
-            marker.pose.orientation.z = np.sin(p[2]/2)
-            marker.pose.orientation.w = np.cos(p[2]/2)
+            marker.pose.orientation.z = sin_half_theta[i]
+            marker.pose.orientation.w = cos_half_theta[i]
+            
             marker_array.markers.append(marker)
         
         self.marker_pub.publish(marker_array)
@@ -228,14 +180,14 @@ class MCMHLocalizer:
 
         if self.last_odom is not None:
             delta = self.compute_motion(self.last_odom, current_odom)
-            self.apply_motion_model(delta)
+            self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha)
 
         self.last_odom = current_odom
 
     def compute_motion(self, odom1, odom2):
         dx = odom2[0] - odom1[0]
         dy = odom2[1] - odom1[1]
-        dtheta = self.normalize_angle(odom2[2] - odom1[2])
+        dtheta = normalize_angle(odom2[2] - odom1[2])
 
         rot1 = np.arctan2(dy, dx) - odom1[2]
         trans = np.hypot(dx, dy)
