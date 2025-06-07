@@ -5,21 +5,20 @@ from numpy.random import choice
 import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import PoseStamped, Point
+from geometry_msgs.msg import PoseWithCovarianceStamped, Point
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba
 
 class MCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
 
         # Parâmetros
-        self.num_particles = 5000
-        self.alpha = np.array([0.04, 0.04, 0.2, 0.2], dtype=np.float32)
-        
+        self.num_particles = 1000
+        self.alpha = np.array([0.05, 0.05, 0.1, 0.1], dtype=np.float32)
         # Carrega o mapa
         self.load_map()
         
@@ -35,7 +34,7 @@ class MCMHLocalizer:
         rospy.Subscriber('/odom', Odometry, self.odom_callback)
         
         # Publishers
-        self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseStamped, queue_size=1)
+        self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=1)
         self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=1)
         
         # TF
@@ -88,12 +87,7 @@ class MCMHLocalizer:
         if not (0 <= mx < self.map_data.shape[1] and 0 <= my < self.map_data.shape[0]):
             return False
         return self.map_data[my, mx] == 0
-    
-    def get_nearest_valid(self, x, y):
-        """Versão corrigida que retorna coordenadas x,y diretamente"""
-        _, idx = self.kdtree.query([x, y])
-        nearest = self.free_cells_coords[idx]
-        return nearest[0], nearest[1]  # Retorna x,y diretamente
+
 
 
     def get_angles(self,particles):
@@ -129,12 +123,42 @@ class MCMHLocalizer:
             rospy.logwarn("Reinicializando partículas!")
             self.particles = self.initialize_particles()
             return
-
+        
+        valid_particles = self.particles[valid_indices]
         valid_weights = self.weights[valid_indices]
         valid_weights /= np.sum(valid_weights)
 
-        new_indices = np.random.choice(valid_indices, size=self.num_particles, p=valid_weights)
-        self.particles = self.particles[new_indices]
+        if np.sum(valid_weights) < 1e-6:
+            rospy.logwarn("Pesos degeneraram! Reinicializando partículas.")
+            self.particles = self.initialize_particles()
+            self.weights.fill(1.0 / self.num_particles)
+            return
+        
+        if valid_particles.shape[0] < self.num_particles:
+            rospy.logwarn(f"Apenas {valid_particles.shape[0]} partículas válidas, fazendo oversampling com LVR.")
+            # Ajusta pesos e partículas para repetir via LVR
+            expanded_particles = np.repeat(valid_particles, repeats=(self.num_particles // valid_particles.shape[0]) + 1, axis=0)
+            expanded_weights = np.repeat(valid_weights, repeats=(self.num_particles // valid_particles.shape[0]) + 1)
+            expanded_weights = expanded_weights[:expanded_particles.shape[0]]
+            expanded_weights /= np.sum(expanded_weights)
+
+            resampled_particles, resampled_weights = low_variance_resample_numba(
+                expanded_particles[:self.num_particles],
+                expanded_weights[:self.num_particles]
+            )
+
+            self.particles = resampled_particles
+            self.weights = resampled_weights
+
+        else:
+
+            resampled_particles, resampled_weights = low_variance_resample_numba(
+                self.particles[valid_indices],
+                valid_weights
+            )
+
+        self.particles = resampled_particles
+        self.weights = resampled_weights
 
 
     def publish_particles(self):
@@ -180,7 +204,9 @@ class MCMHLocalizer:
 
         if self.last_odom is not None:
             delta = self.compute_motion(self.last_odom, current_odom)
-            self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha)
+            self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha,
+                                                              self.occupancy_map, self.resolution,
+                                                              self.origin_np[0], self.origin_np[1])
 
         self.last_odom = current_odom
 
@@ -204,14 +230,33 @@ class MCMHLocalizer:
     
     def publish_estimate(self):
 
-        mean_pose = np.mean(self.particles, axis=0)
-        pose = PoseStamped()
+        mean_pose = np.average(self.particles, axis=0,weights=self.weights)
+        diffs = self.particles - mean_pose
+        cov = np.cov(diffs.T, aweights=self.weights)
+        pose = PoseWithCovarianceStamped()
         pose.header.stamp = rospy.Time.now()
         pose.header.frame_id = "map"
-        pose.pose.position.x = mean_pose[0]
-        pose.pose.position.y = mean_pose[1]
-        pose.pose.orientation.z = np.sin(mean_pose[2] / 2.0)
-        pose.pose.orientation.w = np.cos(mean_pose[2] / 2.0)
+        pose.pose.pose.position.x = mean_pose[0]
+        pose.pose.pose.position.y = mean_pose[1]
+        pose.pose.pose.orientation.z = np.sin(mean_pose[2] / 2.0)
+        pose.pose.pose.orientation.w = np.cos(mean_pose[2] / 2.0)
+
+        # Preenche a matriz de covariância (6x6 flatten)
+        # Usamos apenas as dimensões x, y, theta → [0,0], [1,1], [5,5]
+        cov_flat = np.zeros(36)
+        cov_flat[0] = cov[0, 0]           # x-x
+        cov_flat[1] = cov[0, 1]           # x-y
+        cov_flat[5] = cov[0, 2]           # x-theta
+
+        cov_flat[6] = cov[1, 0]           # y-x
+        cov_flat[7] = cov[1, 1]           # y-y
+        cov_flat[11] = cov[1, 2]          # y-theta
+
+        cov_flat[30] = cov[2, 0]          # theta-x
+        cov_flat[31] = cov[2, 1]          # theta-y
+        cov_flat[35] = cov[2, 2]          # theta-theta
+
+        pose.pose.covariance = cov_flat.tolist()
         self.pose_pub.publish(pose)
 
 

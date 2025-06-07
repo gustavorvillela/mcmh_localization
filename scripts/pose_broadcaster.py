@@ -5,7 +5,7 @@ from numpy.random import choice
 import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import PoseStamped, TransformStamped, Point
+from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, Point
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
@@ -19,7 +19,7 @@ class PoseBroadcaster:
         rospy.init_node('pose_broadcaster')
 
         #Subscriber
-        rospy.Subscriber('/mcmh_estimated_pose', PoseStamped, self.pose_callback)
+        rospy.Subscriber('/mcmh_estimated_pose', PoseWithCovarianceStamped, self.pose_callback)
 
         # TF
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
@@ -31,7 +31,7 @@ class PoseBroadcaster:
     def pose_callback(self,pose):
 
         odom_to_base = self.get_odom_to_base()
-        trans, rot = self.compute_map_to_odom_tf(pose,odom_to_base)
+        trans, rot = self.compute_map_to_odom_tf(pose.pose,odom_to_base)
         self.broadcast_transform(trans,rot)
 
     def get_odom_to_base(self):
