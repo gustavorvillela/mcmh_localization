@@ -3,50 +3,53 @@ import numpy as np
 
 @njit
 def normalize_angle(theta):
-    while theta > np.pi:
-        theta -= 2 * np.pi
-    while theta < -np.pi:
-        theta += 2 * np.pi
-    return theta
+    """
+    Normaliza ângulo para o intervalo [-pi, pi].
+    """
+    return (theta + np.pi) % (2 * np.pi) - np.pi
 
+@njit(parallel=True)
+def normalize_angle_array(angles, mean_angle):
+    """
+    Normaliza vetor de ângulos em relação ao ângulo médio.
+    """
+    n = angles.shape[0]
+    result = np.empty(n, dtype=np.float32)
+    for i in prange(n):
+        result[i] = normalize_angle(angles[i] - mean_angle)
+    return result
 
 @njit(parallel=True)
 def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolution, map_origin):
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    # Parâmetros do modelo AMCL
-    sigma_hit = 0.02         # desvio padrão do ruído gaussiano (em metros)
-    z_hit = 0.95            # peso da componente gaussiana
-    z_rand = 0.05           # peso da componente aleatória
-    max_range = 10.0        # alcance máximo do laser
-    valid_count = 0 
+    sigma_hit = 0.05
+    z_hit = 0.95
+    z_rand = 0.05
+    max_range = 10.0
 
     for i in prange(N):
         x, y, theta = particles[i]
         score = 0.0
+        valid_count = 0
 
-        for j in range(len(scan_ranges)):
+        for j in range(len(scan_ranges)): 
             r = scan_ranges[j]
-
             if np.isfinite(r) and r < max_range:
                 valid_count += 1
-                # Coordenada do feixe no mundo
+
                 lx = x + r * np.cos(theta + angles[j])
                 ly = y + r * np.sin(theta + angles[j])
-
-                # Converte para índice de mapa
                 mx = int((lx - map_origin[0]) / map_resolution)
                 my = int((ly - map_origin[1]) / map_resolution)
 
-                # Se dentro do mapa, calcula distância
                 if 0 <= mx < distance_map.shape[1] and 0 <= my < distance_map.shape[0]:
                     dist = distance_map[my, mx]
                     p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
                 else:
-                    p_hit = 0.0  # fora do mapa → distância infinita
+                    p_hit = 0.0
 
-                # Mistura com ruído aleatório
                 p = z_hit * p_hit + z_rand * (1.0 / max_range)
                 score += p
 
@@ -56,7 +59,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
     return scores
 
 
-    return scores
+
 
 
 @njit(parallel=True)
@@ -68,8 +71,8 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
-        alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        #alpha = 1
+        #alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        alpha = 1
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
@@ -85,8 +88,8 @@ def apply_motion_model_parallel(particles, delta, alpha, occupancy_map, map_reso
 
     max_attempts = 10
 
-    if abs(trans) < 1e-3 and abs(rot1) < 1e-3 and abs(rot2) < 1e-3:
-        return particles.copy()
+    #if abs(trans) < 1e-3 and abs(rot1) < 1e-3 and abs(rot2) < 1e-3:
+    #    return particles.copy()
 
     for i in prange(num_particles):
         success = False
@@ -122,7 +125,7 @@ def compute_valid_indices(particles, occupancy_map, map_resolution, origin_x, or
         my = int((y - origin_y) / map_resolution)
 
         if 0 <= mx < occupancy_map.shape[1] and 0 <= my < occupancy_map.shape[0]:
-            if occupancy_map[my, mx] == 0:  # livre
+            if occupancy_map[my, mx] <= 10:  # livre
                 valid_indices.append(i)
 
     return np.array(valid_indices, dtype=np.int32)
@@ -145,15 +148,14 @@ def compute_valid_mask(particles, occupancy_map, map_resolution, origin_x, origi
 
     for i in prange(num_particles):
         x, y = particles[i, 0], particles[i, 1]
-        mx = int((x - origin_x) / map_resolution)
-        my = int((y - origin_y) / map_resolution)
+        mx = int(np.floor((x - origin_x) / map_resolution))
+        my = int(np.floor((y - origin_y) / map_resolution))
 
         if 0 <= mx < width and 0 <= my < height:
-            if occupancy_map[my, mx] == 0:
+            if occupancy_map[my, mx] <= 10:  # ou 50, dependendo do seu uso
                 valid_mask[i] = True
 
     return valid_mask
-
 
 
 @njit
@@ -179,42 +181,19 @@ def low_variance_resample_numba(particles, weights):
 @njit
 def generate_valid_particles(num_particles, min_coords, max_coords,
                              occupancy_map, map_resolution, origin_x, origin_y):
-    max_trials = num_particles * 10  # limite de tentativas
-    all_particles = np.zeros((max_trials, 3), dtype=np.float32)
+    max_trials = num_particles * 10
 
-    for i in range(max_trials):
-        all_particles[i, 0] = np.random.uniform(min_coords[0], max_coords[0])
-        all_particles[i, 1] = np.random.uniform(min_coords[1], max_coords[1])
-        all_particles[i, 2] = normalize_angle(np.random.uniform(-np.pi, np.pi))
+    # Geração de partículas aleatórias
+    x = np.random.uniform(min_coords[0], max_coords[0], size=max_trials)
+    y = np.random.uniform(min_coords[1], max_coords[1], size=max_trials)
+    theta = np.random.uniform(-np.pi, np.pi, size=max_trials)
 
-    # Obtem máscara booleana dos válidos (paralelizada)
+    all_particles = np.column_stack((x, y, theta))
     valid_mask = compute_valid_mask(all_particles, occupancy_map, map_resolution, origin_x, origin_y)
 
-    # Conta quantos são válidos
-    count_valid = 0
-    for i in range(max_trials):
-        if valid_mask[i]:
-            count_valid += 1
+    valid_particles = all_particles[valid_mask]
 
-    # Se não tem válidos suficientes, retorna o que tem (ou um array vazio)
-    if count_valid < num_particles:
-        # coleta os válidos
-        valid_particles = np.zeros((count_valid, 3), dtype=np.float32)
-        idx = 0
-        for i in range(max_trials):
-            if valid_mask[i]:
-                valid_particles[idx] = all_particles[i]
-                idx += 1
-        return valid_particles
-
-    # Se tem suficientes, seleciona os primeiros num_particles válidos
-    selected_particles = np.zeros((num_particles, 3), dtype=np.float32)
-    idx = 0
-    for i in range(max_trials):
-        if valid_mask[i]:
-            selected_particles[idx] = all_particles[i]
-            idx += 1
-            if idx == num_particles:
-                break
-
-    return selected_particles
+    if valid_particles.shape[0] >= num_particles:
+        return valid_particles[:num_particles]
+    else:
+        return valid_particles  # menos do que o pedido, mas o que deu

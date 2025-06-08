@@ -10,15 +10,15 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array
 
 class MCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
 
         # Parâmetros
-        self.num_particles = 1000
-        self.alpha = np.array([0.05, 0.05, 0.1, 0.1], dtype=np.float32)
+        self.num_particles = 10000
+        self.alpha = np.array([0.05, 0.05, 0.02, 0.02], dtype=np.float32)
         # Carrega o mapa
         self.load_map()
         
@@ -90,15 +90,15 @@ class MCMHLocalizer:
 
 
 
-    def get_angles(self,particles):
-
-        return particles.reshape((self.num_particles,3))[:,2]
+    def get_lidar_angles(self, scan):
+        num_ranges = len(scan.ranges)
+        return np.linspace(scan.angle_min, scan.angle_max, num_ranges, dtype=np.float32)
 
 
     def update_particles_mh(self, scan):
 
         scan_ranges = np.array(scan.ranges, dtype=np.float32)
-        angles = self.get_angles(self.particles_prop)
+        angles = self.get_lidar_angles(scan)
         
 
         scores = compute_likelihoods(
@@ -106,8 +106,10 @@ class MCMHLocalizer:
         self.distance_map, self.resolution, self.origin_np
         )
 
+        weights = scores / np.sum(scores)
+
         
-        self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,scores,self.weights)
+        self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights,self.weights)
 
 
     def resample_valid_particles(self):
@@ -231,7 +233,10 @@ class MCMHLocalizer:
     def publish_estimate(self):
 
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
-        diffs = self.particles - mean_pose
+        diffs = self.particles.copy()
+        diffs[:, 0] -= mean_pose[0]
+        diffs[:, 1] -= mean_pose[1]
+        diffs[:, 2] = normalize_angle_array(self.particles[:, 2], mean_pose[2])
         cov = np.cov(diffs.T, aweights=self.weights)
         pose = PoseWithCovarianceStamped()
         pose.header.stamp = rospy.Time.now()
