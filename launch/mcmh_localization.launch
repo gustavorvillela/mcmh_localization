@@ -3,15 +3,18 @@
   <arg name="model" default="waffle_pi"/>
   <env name="TURTLEBOT3_MODEL" value="$(arg model)"/>-->
 
+  <!-- World -->
+  <arg name="world" default="house"/>
+
   <!-- Gazebo com mapa e TurtleBot -->
-  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_world.launch" />
+  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_$(arg world).launch" />
   <include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch" />
 
   <!-- Teleoperação do TurtleBot-->
   <include file="$(find turtlebot3_teleop)/launch/turtlebot3_teleop_key.launch" />
 
   <!-- Carregar mapa -->
-  <arg name="map_file" default="$(find mcmh_localization)/maps/map_ttb_world.yaml"/>
+  <arg name="map_file" default="$(find mcmh_localization)/maps/map_$(arg world).yaml"/>
   <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
 
 
