@@ -10,7 +10,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_amcl, normalize_angle_array, kld_sampling_amcl, reinitialize_particles_numba
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_amcl, normalize_angle_array, kld_sampling_amcl, reinitialize_particles_numba,parallel_resample_simple
 
 class AMCMHLocalizer:
     def __init__(self):
@@ -18,7 +18,7 @@ class AMCMHLocalizer:
 
         # Parâmetros gerais
         self.num_particles = 2000
-        self.alpha = np.array([0.2, 0.2, 0.2, 0.2], dtype=np.float32)
+        self.alpha = np.array([0.02, 0.02, 0.02, 0.02], dtype=np.float32)
 
         # Parâmetros KLD
         self.kld_epsilon = 0.01
@@ -85,10 +85,10 @@ class AMCMHLocalizer:
 
     def initialize_particles(self):
 
-        min_coords = np.min(self.free_cells_coords, axis=0)
-        max_coords = np.max(self.free_cells_coords, axis=0)
+        self.min_coords = np.min(self.free_cells_coords, axis=0)
+        self.max_coords = np.max(self.free_cells_coords, axis=0)
 
-        final_particles = generate_valid_particles(self.num_particles, min_coords, max_coords,
+        final_particles = generate_valid_particles(self.num_particles, self.min_coords, self.max_coords,
                                              self.occupancy_map, self.resolution, 
                                              self.origin_np[0], self.origin_np[1])
 
@@ -111,6 +111,17 @@ class AMCMHLocalizer:
     def get_lidar_angles(self, scan):
         num_ranges = len(scan.ranges)
         return np.linspace(scan.angle_min, scan.angle_max, num_ranges, dtype=np.float32)
+    
+
+    def convert_scores(self,scores):
+
+        max_score = np.max(scores)
+        weights = np.zeros_like(scores)
+        weights = np.exp(scores - max_score)
+        weights =  weights/np.sum(weights)
+
+        return weights
+
 
 
     def update_particles_mh(self, scan):
@@ -119,28 +130,47 @@ class AMCMHLocalizer:
         angles = self.get_lidar_angles(scan)
         
 
-        scores = compute_likelihoods(
+        scores_pre = compute_likelihoods(
         scan_ranges, angles, self.particles,
         self.distance_map, self.resolution, self.origin_np
         )
 
-        max_score = np.max(scores)
-        weights = np.zeros_like(scores)
-        weights = np.exp(scores - max_score)
-        weights =  weights/np.sum(weights)
+        weights_pre = self.convert_scores(scores_pre)
 
+        #scores_post = compute_likelihoods(
+        #scan_ranges, angles, self.particles_prop,
+        #self.distance_map, self.resolution, self.origin_np
+        #)
+#
+        #weights_post = self.convert_scores(scores_post)
 
+        
+        #mh_particles, weights = mh_resampling(self.particles,self.particles_prop,weights_post,weights_pre)
+        #self.particles = self.particles_prop.copy()
 
         # Atualiza w_slow e w_fast
-        w_avg = np.mean(weights)  # média dos pesos normalizados
+        w_avg = np.mean(weights_pre)  # média dos pesos normalizados
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
         
+        self.weights = weights_pre
+        self.weights_viz = weights_pre
+
+    def resample_amcl_simple(self):
+
+        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+
+        N = self.num_particles
+        N_random = int(p_random * N)
+        N_resampled = N - N_random
+
+        resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
+
+        random_particles = generate_valid_particles(N_random,self.min_coords,self.max_coords,self.occupancy_map,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1])
         
-        #self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights,self.weights)
-        #self.particles = self.particles_prop
-        self.weights = weights
-        self.weights_viz = weights
+        self.particles = np.vstack((resampled_particles,random_particles))
+        self.weights   = np.full(N,1/N)
 
 
     def resample_valid_particles_lvr(self):
@@ -280,7 +310,7 @@ class AMCMHLocalizer:
 
         if self.last_odom is not None:
             delta = self.compute_motion(self.last_odom, current_odom)
-            self.particles= apply_motion_model_parallel(self.particles,delta,self.alpha,
+            self.particles = apply_motion_model_parallel(self.particles,delta,self.alpha,
                                                               self.occupancy_map, self.resolution,
                                                               self.origin_np[0], self.origin_np[1])
 
@@ -300,7 +330,7 @@ class AMCMHLocalizer:
     def lidar_callback(self, msg):
         self.update_particles_mh(msg)
         self.publish_estimate()
-        self.resample_amcl_particles_kld()
+        self.resample_amcl_simple()
         self.publish_particles()
 
     

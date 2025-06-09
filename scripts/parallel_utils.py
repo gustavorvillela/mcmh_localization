@@ -35,8 +35,8 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
         valid_count = 0
 
         for j in range(len(scan_ranges)):
-            #if j % 10 != 0:  # downsample a cada 5 feixes
-            #    continue
+            if j % 10 != 0:  # downsample a cada 10 feixes
+                continue
 
             r = scan_ranges[j]
             if np.isfinite(r) and r < max_range:
@@ -73,15 +73,19 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     N = particles.shape[0]
     new_particles = particles.copy()
     new_weights = old_weights.copy()
+    pcount = 0
 
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
-        alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        #alpha = 1
+        #alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        alpha = 1
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
+            pcount+=1
+
+    print("Accepted weights: ", pcount)
 
     return new_particles, new_weights
 
@@ -92,10 +96,8 @@ def apply_motion_model_parallel(particles, delta, alpha, occupancy_map, map_reso
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
-    max_attempts = 10
+    max_attempts = 1000
 
-    #if abs(trans) < 1e-3 and abs(rot1) < 1e-3 and abs(rot2) < 1e-3:
-    #    return particles.copy()
 
     for i in prange(num_particles):
         success = False
@@ -205,6 +207,17 @@ def generate_valid_particles(num_particles, min_coords, max_coords,
         return valid_particles  # menos do que o pedido, mas o que deu
     
 
+@njit(parallel=True)
+def parallel_resample_simple(particles, weights, N):
+    new_particles = np.empty_like(particles)
+    cum_weights = np.cumsum(weights)
+    
+    for i in prange(N):
+        u = np.random.rand()
+        idx = np.searchsorted(cum_weights, u)
+        new_particles[i] = particles[idx]
+    
+    return new_particles
 
 #=============
 # AMCL

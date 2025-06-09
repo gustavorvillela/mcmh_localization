@@ -10,7 +10,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, parallel_resample_simple
 
 class MCMHLocalizer:
     def __init__(self):
@@ -18,7 +18,7 @@ class MCMHLocalizer:
 
         # Parâmetros
         self.num_particles = 5000
-        self.alpha = np.array([0.05, 0.05, 0.1, 0.1], dtype=np.float32)
+        self.alpha = np.array([0.1, 0.1, 0.15, 0.15], dtype=np.float32)
         # Carrega o mapa
         self.load_map()
         
@@ -131,13 +131,21 @@ class MCMHLocalizer:
         self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights_post,weights_pre)
         self.weights_viz = self.weights.copy()
 
-        print("Peso máximo:", np.max(self.weights))
-        print("Peso médio:", np.mean(self.weights))
-        print("Número de pesos > 1e-3:", np.sum(self.weights > 1e-3))
+        #print("Peso máximo:", np.max(self.weights))
+        #print("Peso médio:", np.mean(self.weights))
+        #print("Número de pesos > 1e-3:", np.sum(self.weights > 1e-3))
+
+
+    def resample_simple(self):
+
+        resampled_particles = parallel_resample_simple(self.particles,self.weights,N=self.num_particles)
+
+        self.particles = resampled_particles
 
 
 
-    def resample_valid_particles(self):
+    def resample_valid_particles_lvr(self):
+
         valid_indices = compute_valid_indices(
             self.particles,
             self.occupancy_map,       # 2D numpy array do mapa
@@ -251,7 +259,7 @@ class MCMHLocalizer:
     def lidar_callback(self, msg):
         self.update_particles_mh(msg)
         self.publish_estimate()
-        self.resample_valid_particles()
+        self.resample_simple()
         self.publish_particles()
 
     
