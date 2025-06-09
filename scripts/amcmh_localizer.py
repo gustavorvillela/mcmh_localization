@@ -10,15 +10,32 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_amcl, normalize_angle_array, kld_sampling_amcl, reinitialize_particles_numba
 
-class MCMHLocalizer:
+class AMCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
 
-        # Parâmetros
-        self.num_particles = 5000
-        self.alpha = np.array([0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+        # Parâmetros gerais
+        self.num_particles = 2000
+        self.alpha = np.array([0.05, 0.05, 0.05, 0.05], dtype=np.float32)
+
+        # Parâmetros KLD
+        self.kld_epsilon = 0.01
+        self.kld_delta = 0.01
+        self.kld_bin_size_xy = 0.1  # metros
+        self.kld_bin_size_theta = np.deg2rad(10)  # radianos
+        self.kld_n_max = self.num_particles
+        self.kld_z = 0.99
+
+
+        #AMCL
+        self.min_particles = 100
+        self.max_particles = 2000
+        self.w_slow = 0.0
+        self.w_fast = 0.0
+        self.alpha_slow = 0.001  # taxa de aprendizado lenta
+        self.alpha_fast = 0.1    # taxa de aprendizado rápida
         # Carrega o mapa
         self.load_map()
         
@@ -102,74 +119,129 @@ class MCMHLocalizer:
         angles = self.get_lidar_angles(scan)
         
 
-        scores_pre = compute_likelihoods(
+        scores = compute_likelihoods(
         scan_ranges, angles, self.particles,
         self.distance_map, self.resolution, self.origin_np
         )
 
-        weights_pre = scores_pre / np.sum(scores_pre)
+        # Protege contra todos os scores = -inf
+        finite_mask = np.isfinite(scores)
+        if np.any(finite_mask):
+            max_score = np.max(scores[finite_mask])
+            weights = np.zeros_like(scores)
+            weights[finite_mask] = np.exp(scores[finite_mask] - max_score)
+            weights /= np.sum(weights)
+        else:
+            # fallback de emergência: pesos uniformes
+            weights = np.ones_like(scores) / len(scores)
 
-        scores_post = compute_likelihoods(
-        scan_ranges, angles, self.particles_prop,
-        self.distance_map, self.resolution, self.origin_np
+
+        print("Peso máximo:", np.max(weights))
+        print("Peso médio:", np.mean(weights))
+        print("Número de pesos > 1e-3:", np.sum(weights > 1e-3))
+
+        # Atualiza w_slow e w_fast
+        w_avg = np.mean(weights)  # média dos pesos normalizados
+        self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
+        self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
+        
+        
+        #self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights,self.weights)
+        self.particles = self.particles_prop
+        self.weights = weights
+        self.weights_viz = weights
+
+
+    def resample_valid_particles_lvr(self):
+
+        N = self.num_particles
+        p_random = min(0.5, max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9)))
+
+        # 1. Filtra partículas válidas (mantido da versão original)
+        valid_indices = compute_valid_indices(
+            self.particles, self.occupancy_map,
+            self.resolution, self.origin_np[0], self.origin_np[1]
         )
 
-        weights_post = scores_post / np.sum(scores_post)
+        if len(valid_indices) == 0:
+            rospy.logwarn("Reinicializando partículas: nenhuma válida.")
+            self.particles = self.initialize_particles()
+            self.weights.fill(1.0 / N)
+            return
 
-        
-        self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights_post,weights_pre)
-        self.weights_viz = self.weights.copy()
+        valid_particles = self.particles[valid_indices]
+        valid_weights = self.weights[valid_indices]
+        valid_weights /= np.sum(valid_weights)
 
-
-    def resample_valid_particles(self):
-        valid_indices = compute_valid_indices(
-            self.particles,
-            self.occupancy_map,       # 2D numpy array do mapa
+        # 2. Gera partículas aleatórias (anti-kidnapping - mantido)
+        num_random = int(p_random * N)
+        random_particles = reinitialize_particles_numba(
+            num_random, 
+            self.occupancy_map,
             self.resolution,
             self.origin_np[0],
             self.origin_np[1]
         )
 
+        # 3. Substitui KLD por Low Variance Sampling puro
+        num_lvs = N - num_random  # Número de partículas para LVS
+        resampled_particles, _ = low_variance_resample_amcl(
+            valid_particles,
+            valid_weights,
+            num_lvs  # Novo parâmetro para controle do tamanho
+        )
+
+        # 4. Combina e atualiza pesos (uniformemente, como no AMCL)
+        self.particles = np.vstack((random_particles, resampled_particles))
+        self.weights.fill(1.0 / N)  # Mantém N constante
+        self.num_particles = N  # Garante consistência
+
+
+
+    def resample_amcl_particles_kdl(self):
+        N = self.num_particles
+        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+
+        valid_indices = compute_valid_indices(
+            self.particles, self.occupancy_map,
+            self.resolution, self.origin_np[0], self.origin_np[1]
+        )
+
         if len(valid_indices) == 0:
-            rospy.logwarn("Reinicializando partículas!")
+            rospy.logwarn("Reinicializando partículas: nenhuma válida.")
             self.particles = self.initialize_particles()
+            self.weights.fill(1.0 / self.num_particles)
             return
-        
+
         valid_particles = self.particles[valid_indices]
         valid_weights = self.weights[valid_indices]
         valid_weights /= np.sum(valid_weights)
 
-        if np.sum(valid_weights) < 1e-6:
-            rospy.logwarn("Pesos degeneraram! Reinicializando partículas.")
-            self.particles = self.initialize_particles()
-            self.weights.fill(1.0 / self.num_particles)
-            return
-        
-        if valid_particles.shape[0] < self.num_particles:
-            rospy.logwarn(f"Apenas {valid_particles.shape[0]} partículas válidas, fazendo oversampling com LVR.")
-            # Ajusta pesos e partículas para repetir via LVR
-            expanded_particles = np.repeat(valid_particles, repeats=(self.num_particles // valid_particles.shape[0]) + 1, axis=0)
-            expanded_weights = np.repeat(valid_weights, repeats=(self.num_particles // valid_particles.shape[0]) + 1)
-            expanded_weights = expanded_weights[:expanded_particles.shape[0]]
-            expanded_weights /= np.sum(expanded_weights)
+        # Partículas aleatórias fora do Numba
+        num_random = int(p_random * N)
+        random_particles = reinitialize_particles_numba(num_random, 
+                                                        self.occupancy_map,
+                                                        self.resolution,
+                                                        self.origin_np[0],
+                                                        self.origin_np[1]
+                                                        )
 
-            resampled_particles, resampled_weights = low_variance_resample_numba(
-                expanded_particles[:self.num_particles],
-                expanded_weights[:self.num_particles]
-            )
+        # KLD Sampling com Numba
+        resampled_particles = kld_sampling_amcl(
+            valid_particles,
+            valid_weights,
+            self.kld_bin_size_xy,
+            self.kld_bin_size_theta,
+            self.kld_epsilon,
+            self.kld_z,
+            self.max_particles,
+            self.min_particles
+        )
 
-            self.particles = resampled_particles
-            self.weights = resampled_weights
-
-        else:
-
-            resampled_particles, resampled_weights = low_variance_resample_numba(
-                self.particles[valid_indices],
-                valid_weights
-            )
-
-        self.particles = resampled_particles
-        self.weights = resampled_weights
+        # Junta
+        self.particles = np.vstack((random_particles, resampled_particles))
+        self.weights   = np.full(len(self.particles), 1/len(self.particles))
+        self.num_particles = len(self.particles)
 
 
     def publish_particles(self):
@@ -235,7 +307,7 @@ class MCMHLocalizer:
     def lidar_callback(self, msg):
         self.update_particles_mh(msg)
         self.publish_estimate()
-        self.resample_valid_particles()
+        self.resample_amcl_particles_kdl()
         self.publish_particles()
 
     
@@ -276,7 +348,7 @@ class MCMHLocalizer:
 
 if __name__ == '__main__':
     try:
-        MCMHLocalizer()
+        AMCMHLocalizer()
     except rospy.ROSInterruptException:
         pass
     

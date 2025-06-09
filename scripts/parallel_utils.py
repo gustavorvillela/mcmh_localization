@@ -24,17 +24,20 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    sigma_hit = 0.05
+    sigma_hit = 1.2         # maior tolerância → pesos mais "generosos"
     z_hit = 0.95
-    z_rand = 0.05
+    z_rand = 0.15
     max_range = 10.0
 
     for i in prange(N):
         x, y, theta = particles[i]
-        score = 0.0
+        log_score = 0.0
         valid_count = 0
 
-        for j in range(len(scan_ranges)): 
+        for j in range(len(scan_ranges)):
+            #if j % 10 != 0:  # downsample a cada 5 feixes
+            #    continue
+
             r = scan_ranges[j]
             if np.isfinite(r) and r < max_range:
                 valid_count += 1
@@ -51,10 +54,13 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
                     p_hit = 0.0
 
                 p = z_hit * p_hit + z_rand * (1.0 / max_range)
-                score += p
+                p = max(p, 1e-6)  # evita log(0)
+                log_score += np.log(p)
 
-        scores[i] = score
-        scores[i] = score / max(valid_count, 1)
+        if valid_count > 0:
+            scores[i] = log_score / (valid_count* sigma_hit**2)
+        else:
+            scores[i] = -np.inf  # penaliza partículas cegas
 
     return scores
 
@@ -71,8 +77,8 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
-        #alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        alpha = 1
+        alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        #alpha = 1
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
@@ -197,3 +203,102 @@ def generate_valid_particles(num_particles, min_coords, max_coords,
         return valid_particles[:num_particles]
     else:
         return valid_particles  # menos do que o pedido, mas o que deu
+    
+
+
+#=============
+# AMCL
+#=============
+
+from numba import njit, prange
+import numpy as np
+
+@njit
+def low_variance_resample_amcl(particles, weights, target_size):
+    N = len(particles)
+    new_particles = np.empty((target_size, 3), dtype=np.float32)
+    
+    r = np.random.uniform(0.0, 1.0 / target_size)
+    c = weights[0]
+    i = 0
+
+    for m in range(target_size):
+        U = r + m / target_size
+        while U > c and i < N - 1:
+            i += 1
+            c += weights[i]
+        new_particles[m] = particles[i % N]  # % N para evitar overflow
+
+    return new_particles, np.full(target_size, 1.0/target_size)
+
+@njit(parallel=True)
+def reinitialize_particles_numba(num_new, occupancy_map, res, origin_x, origin_y):
+    new_particles = np.empty((num_new, 3), dtype=np.float32)
+    valid_cells = np.argwhere(occupancy_map == 0)  # Pré-computa células válidas
+    
+    # Caso não haja células válidas (improvável)
+    if len(valid_cells) == 0:
+        for i in prange(num_new):
+            new_particles[i] = np.array([origin_x, origin_y, np.random.uniform(-np.pi, np.pi)])
+        return new_particles
+    
+    for i in prange(num_new):
+        # Amostra diretamente de células válidas
+        idx = np.random.randint(0, len(valid_cells))
+        my, mx = valid_cells[idx]  # Note a ordem (y,x)
+        
+        x = mx * res + origin_x
+        y = my * res + origin_y
+        theta = np.random.uniform(-np.pi, np.pi)
+        
+        new_particles[i] = np.array([x, y, theta])
+                
+    return new_particles
+
+
+@njit
+def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
+                       epsilon, z, max_samples, min_particles):
+    bins = set()
+    sampled_particles = np.empty((max_samples, 3), dtype=np.float32)
+    count = 0
+    noise_std = np.array([0.001, 0.001, 0.02], dtype=np.float64)
+    
+    r = np.random.uniform(0, 1/max_samples)
+    c = weights[0]
+    i = 0
+    
+    while count < max_samples:
+        # Low-variance sampling
+        u = r + count / max_samples
+        while u > c and i < len(weights)-1:
+            i += 1
+            c += weights[i]
+        
+        p = particles[i]
+        
+        # Adiciona ruído gaussiano
+        noisy_particle = np.empty(3, dtype=np.float64)
+        for j in range(3):
+            noisy_particle[j] = p[j] + np.random.normal(0, noise_std[j])
+        
+        # Atualiza bins
+        x_bin = int(noisy_particle[0] / bin_size_xy)
+        y_bin = int(noisy_particle[1] / bin_size_xy)
+        theta_bin = int(noisy_particle[2] / bin_size_theta)
+        bin_id = (x_bin, y_bin, theta_bin)
+        
+        if bin_id not in bins:
+            bins.add(bin_id)
+            k = len(bins)
+            
+            # Critério de parada KLD
+            if k > 1 and count >= min_particles:
+                chi2 = (k-1)*(1 - 2/(9*(k-1)) + np.sqrt(2/(9*(k-1)))*z)**3
+                if count > chi2/(2*epsilon):
+                    break
+        
+        sampled_particles[count] = noisy_particle
+        count += 1
+    
+    return sampled_particles[:count]  # Retorna apenas as amostradas

@@ -77,8 +77,10 @@ class PoseBroadcaster:
     
     def broadcast_transform(self,trans, rot):
 
+        now = rospy.Time.now() if not hasattr(self, 'use_sim_time') else rospy.Time(0)
+
         t = TransformStamped()
-        t.header.stamp = rospy.Time.now()
+        t.header.stamp = now
         t.header.frame_id = "map"
         t.child_frame_id = "odom"
         t.transform.translation.x = trans[0]
@@ -93,9 +95,6 @@ class PoseBroadcaster:
         self.tf_broadcaster.sendTransform(t)
 
     
-
-    
-        
 
 if __name__ == '__main__':
     try:
