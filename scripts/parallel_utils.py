@@ -24,10 +24,10 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    sigma_hit = 1.2         # maior tolerância → pesos mais "generosos"
+    sigma_hit = 0.2         # maior tolerância → pesos mais "generosos"
     z_hit = 0.95
-    z_rand = 0.15
-    max_range = 10.0
+    z_rand = 0.01
+    max_range = 2
 
     for i in prange(N):
         x, y, theta = particles[i]

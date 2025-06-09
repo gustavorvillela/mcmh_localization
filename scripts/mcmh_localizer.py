@@ -18,7 +18,7 @@ class MCMHLocalizer:
 
         # Parâmetros
         self.num_particles = 5000
-        self.alpha = np.array([0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+        self.alpha = np.array([0.05, 0.05, 0.1, 0.1], dtype=np.float32)
         # Carrega o mapa
         self.load_map()
         
@@ -94,6 +94,17 @@ class MCMHLocalizer:
     def get_lidar_angles(self, scan):
         num_ranges = len(scan.ranges)
         return np.linspace(scan.angle_min, scan.angle_max, num_ranges, dtype=np.float32)
+    
+    def convert_scores(self,scores):
+
+        max_score = np.max(scores)
+        weights = np.zeros_like(scores)
+        weights = np.exp(scores - max_score)
+        weights =  weights/np.sum(weights)
+
+        return weights
+
+
 
 
     def update_particles_mh(self, scan):
@@ -107,18 +118,23 @@ class MCMHLocalizer:
         self.distance_map, self.resolution, self.origin_np
         )
 
-        weights_pre = scores_pre / np.sum(scores_pre)
+        weights_pre = self.convert_scores(scores_pre)
 
         scores_post = compute_likelihoods(
         scan_ranges, angles, self.particles_prop,
         self.distance_map, self.resolution, self.origin_np
         )
 
-        weights_post = scores_post / np.sum(scores_post)
+        weights_post = self.convert_scores(scores_post)
 
         
         self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights_post,weights_pre)
         self.weights_viz = self.weights.copy()
+
+        print("Peso máximo:", np.max(self.weights))
+        print("Peso médio:", np.mean(self.weights))
+        print("Número de pesos > 1e-3:", np.sum(self.weights > 1e-3))
+
 
 
     def resample_valid_particles(self):

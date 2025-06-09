@@ -18,7 +18,7 @@ class AMCMHLocalizer:
 
         # Parâmetros gerais
         self.num_particles = 2000
-        self.alpha = np.array([0.05, 0.05, 0.05, 0.05], dtype=np.float32)
+        self.alpha = np.array([0.2, 0.2, 0.2, 0.2], dtype=np.float32)
 
         # Parâmetros KLD
         self.kld_epsilon = 0.01
@@ -30,12 +30,12 @@ class AMCMHLocalizer:
 
 
         #AMCL
-        self.min_particles = 100
-        self.max_particles = 2000
+        self.min_particles = 1500
+        self.max_particles = 10000
         self.w_slow = 0.0
         self.w_fast = 0.0
         self.alpha_slow = 0.001  # taxa de aprendizado lenta
-        self.alpha_fast = 0.1    # taxa de aprendizado rápida
+        self.alpha_fast = 0.1   # taxa de aprendizado rápida
         # Carrega o mapa
         self.load_map()
         
@@ -124,21 +124,12 @@ class AMCMHLocalizer:
         self.distance_map, self.resolution, self.origin_np
         )
 
-        # Protege contra todos os scores = -inf
-        finite_mask = np.isfinite(scores)
-        if np.any(finite_mask):
-            max_score = np.max(scores[finite_mask])
-            weights = np.zeros_like(scores)
-            weights[finite_mask] = np.exp(scores[finite_mask] - max_score)
-            weights /= np.sum(weights)
-        else:
-            # fallback de emergência: pesos uniformes
-            weights = np.ones_like(scores) / len(scores)
+        max_score = np.max(scores)
+        weights = np.zeros_like(scores)
+        weights = np.exp(scores - max_score)
+        weights =  weights/np.sum(weights)
 
 
-        print("Peso máximo:", np.max(weights))
-        print("Peso médio:", np.mean(weights))
-        print("Número de pesos > 1e-3:", np.sum(weights > 1e-3))
 
         # Atualiza w_slow e w_fast
         w_avg = np.mean(weights)  # média dos pesos normalizados
@@ -147,7 +138,7 @@ class AMCMHLocalizer:
         
         
         #self.particles, self.weights = mh_resampling(self.particles,self.particles_prop,weights,self.weights)
-        self.particles = self.particles_prop
+        #self.particles = self.particles_prop
         self.weights = weights
         self.weights_viz = weights
 
@@ -198,9 +189,9 @@ class AMCMHLocalizer:
 
 
 
-    def resample_amcl_particles_kdl(self):
+    def resample_amcl_particles_kld(self):
         N = self.num_particles
-        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+        p_random = min(0.5, max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9)))
 
         valid_indices = compute_valid_indices(
             self.particles, self.occupancy_map,
@@ -240,13 +231,15 @@ class AMCMHLocalizer:
 
         # Junta
         self.particles = np.vstack((random_particles, resampled_particles))
-        self.weights   = np.full(len(self.particles), 1/len(self.particles))
+        self.weights   = np.full(len(self.particles), 1.0 / len(self.particles))
+        
+
         self.num_particles = len(self.particles)
 
 
     def publish_particles(self):
         marker_array = MarkerArray()
-        weights = self.weights_viz
+        weights = self.weights
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
 
         cos_half_theta = np.cos(self.particles[:,2] / 2.0)
@@ -287,7 +280,7 @@ class AMCMHLocalizer:
 
         if self.last_odom is not None:
             delta = self.compute_motion(self.last_odom, current_odom)
-            self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha,
+            self.particles= apply_motion_model_parallel(self.particles,delta,self.alpha,
                                                               self.occupancy_map, self.resolution,
                                                               self.origin_np[0], self.origin_np[1])
 
@@ -307,7 +300,7 @@ class AMCMHLocalizer:
     def lidar_callback(self, msg):
         self.update_particles_mh(msg)
         self.publish_estimate()
-        self.resample_amcl_particles_kdl()
+        self.resample_amcl_particles_kld()
         self.publish_particles()
 
     
