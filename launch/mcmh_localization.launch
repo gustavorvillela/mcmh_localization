@@ -17,10 +17,12 @@
   <arg name="map_file" default="$(find mcmh_localization)/maps/map_$(arg world).yaml"/>
   <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
 
-
+  <!-- Carrega o arquivo YAML -->
+  <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
 
   <!-- Nó do estimador baseado em MCMC-->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen" /> 
+
 
   <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen" /> 
 

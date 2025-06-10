@@ -15,23 +15,34 @@ from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_mode
 class AMCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
+        self.mode = rospy.get_param('localization_mode', 'AMCL')  # padrão: AMCL
+        self.use_mh = 'MH' in self.mode
+        self.use_adaptive = 'A' in self.mode  # AMCL ou MHAMCL usam KLD
+
+        rospy.loginfo(f"Modo de localização: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive}")
+
 
         # Parâmetros gerais
-        self.num_particles = 2000 # do not touch
-        self.alpha = np.array([0.02, 0.02, 0.05, 0.05], dtype=np.float32) #do not touch
+        self.num_particles = rospy.get_param('init_particles', 2000) # do not touch
+        self.alpha = np.array([
+                                rospy.get_param('alpha1', 0.2),
+                                rospy.get_param('alpha2', 0.2),
+                                rospy.get_param('alpha3', 0.2),
+                                rospy.get_param('alpha4', 0.2)
+                            ], dtype=np.float32) #do not touch
 
         # Parâmetros KLD
-        self.kld_epsilon = 0.01
+        self.kld_epsilon = rospy.get_param('kld_epsilon', 0.05)
         self.kld_delta = 0.01
         self.kld_bin_size_xy = 0.1  # metros
         self.kld_bin_size_theta = np.deg2rad(10)  # radianos
         self.kld_n_max = self.num_particles
-        self.kld_z = 0.99
+        self.kld_z = rospy.get_param('kld_z', 0.99)
 
 
         #AMCL
-        self.min_particles = 1500
-        self.max_particles = 10000
+        self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
+        self.max_particles = self.max_particles = rospy.get_param('max_particles', 500)
         self.w_slow = 0.0
         self.w_fast = 0.0
         self.alpha_slow = 0.0001  # taxa de aprendizado lenta
@@ -155,12 +166,35 @@ class AMCMHLocalizer:
 
         #Corretion step
         weights_pre, weights_post = self.update_weights()
-        weights =self.update_particles_mh(weights_pre, weights_post)
-        self.update_acml_weights(weights)
+
+        if self.use_mh:
+
+            weights = self.update_particles_mh(weights_pre, weights_post)
+
+        else:
+
+            weights = weights_post
+
+        
+        if self.use_adaptive:
+
+            self.update_acml_weights(weights)
+
+        else:
+
+            self.weights = weights
         
         #Publish and resampling
         self.publish_estimate()
-        self.resample_amcl_simple()
+
+        if self.use_adaptive:
+
+            self.resample_amcl_simple()
+
+        else:
+
+            self.resample_simple()
+
         self.publish_particles()
 
 
@@ -254,6 +288,12 @@ class AMCMHLocalizer:
         self.particles = np.vstack((resampled_particles,random_particles))
         self.weights   = np.full(N,1/N)
 
+
+    def resample_simple(self):
+
+        resampled_particles = parallel_resample_simple(self.particles,self.weights,N=self.num_particles)
+
+        self.particles = resampled_particles
 
 
 
