@@ -66,28 +66,26 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
 
 
 
-
-
 @njit(parallel=True)
 def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     N = particles.shape[0]
     new_particles = particles.copy()
     new_weights = old_weights.copy()
-    pcount = 0
 
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
-        #alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        alpha = 1
+        alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        #alpha = 1
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
-            pcount+=1
 
-    print("Accepted weights: ", pcount)
 
     return new_particles, new_weights
+
+
+
 
 @njit(parallel=True)
 def apply_motion_model_parallel(particles, delta, alpha, occupancy_map, map_resolution, origin_x, origin_y):

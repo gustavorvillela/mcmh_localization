@@ -17,8 +17,8 @@ class AMCMHLocalizer:
         rospy.init_node('mcmh_localizer')
 
         # Parâmetros gerais
-        self.num_particles = 2000
-        self.alpha = np.array([0.02, 0.02, 0.02, 0.02], dtype=np.float32)
+        self.num_particles = 2000 # do not touch
+        self.alpha = np.array([0.02, 0.02, 0.05, 0.05], dtype=np.float32) #do not touch
 
         # Parâmetros KLD
         self.kld_epsilon = 0.01
@@ -34,7 +34,7 @@ class AMCMHLocalizer:
         self.max_particles = 10000
         self.w_slow = 0.0
         self.w_fast = 0.0
-        self.alpha_slow = 0.001  # taxa de aprendizado lenta
+        self.alpha_slow = 0.0001  # taxa de aprendizado lenta
         self.alpha_fast = 0.1   # taxa de aprendizado rápida
         # Carrega o mapa
         self.load_map()
@@ -42,6 +42,7 @@ class AMCMHLocalizer:
         # Inicializa partículas
         self.particles = self.initialize_particles()
         self.particles_prop = np.copy(self.particles)
+        self.particles_prev = np.copy(self.particles_prop)
         self.weights = np.ones(self.num_particles) / self.num_particles
         self.weights_viz = self.weights.copy()
 
@@ -62,6 +63,10 @@ class AMCMHLocalizer:
         
         
         rospy.spin()
+        
+    #======================================================================
+    # Map 
+    #======================================================================
 
     def load_map(self):
         map_msg = rospy.wait_for_message("/map", OccupancyGrid)
@@ -106,7 +111,63 @@ class AMCMHLocalizer:
             return False
         return self.map_data[my, mx] == 0
 
+    #======================================================================
+    # Weights
+    #======================================================================
 
+
+    def update_weights(self):
+
+        scores_pre = compute_likelihoods(
+        self.scan_ranges, self.angles, self.particles_prev,
+        self.distance_map, self.resolution, self.origin_np
+        )
+
+        weights_pre = self.convert_scores(scores_pre)
+
+        scores_post = compute_likelihoods(
+        self.scan_ranges, self.angles, self.particles,
+        self.distance_map, self.resolution, self.origin_np
+        )
+
+        weights_post = self.convert_scores(scores_post)
+
+        return weights_pre, weights_post
+    
+
+    def update_acml_weights(self,weights):
+
+        # Atualiza w_slow e w_fast
+        w_avg = np.mean(weights)  # média dos pesos normalizados
+        self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
+        self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
+        
+        self.weights = weights/np.sum(weights)
+
+    #======================================================================
+    # LiDAR
+    #======================================================================
+
+
+    def lidar_callback(self, msg):
+
+        self.update_scans(msg)
+
+        #Corretion step
+        weights_pre, weights_post = self.update_weights()
+        weights =self.update_particles_mh(weights_pre, weights_post)
+        self.update_acml_weights(weights)
+        
+        #Publish and resampling
+        self.publish_estimate()
+        self.resample_amcl_simple()
+        self.publish_particles()
+
+
+    def update_scans(self,scan):
+
+        self.scan_ranges = np.array(scan.ranges, dtype=np.float32)
+        self.angles = self.get_lidar_angles(scan)
 
     def get_lidar_angles(self, scan):
         num_ranges = len(scan.ranges)
@@ -122,39 +183,60 @@ class AMCMHLocalizer:
 
         return weights
 
-
-
-    def update_particles_mh(self, scan):
-
-        scan_ranges = np.array(scan.ranges, dtype=np.float32)
-        angles = self.get_lidar_angles(scan)
-        
-
-        scores_pre = compute_likelihoods(
-        scan_ranges, angles, self.particles,
-        self.distance_map, self.resolution, self.origin_np
-        )
-
-        weights_pre = self.convert_scores(scores_pre)
-
-        #scores_post = compute_likelihoods(
-        #scan_ranges, angles, self.particles_prop,
-        #self.distance_map, self.resolution, self.origin_np
-        #)
-#
-        #weights_post = self.convert_scores(scores_post)
+    def update_particles_mh(self,weights_pre, weights_post):
 
         
-        #mh_particles, weights = mh_resampling(self.particles,self.particles_prop,weights_post,weights_pre)
-        #self.particles = self.particles_prop.copy()
-
-        # Atualiza w_slow e w_fast
-        w_avg = np.mean(weights_pre)  # média dos pesos normalizados
-        self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
-        self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
+        mh_particles, weights = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
+        self.particles = mh_particles
         
-        self.weights = weights_pre
-        self.weights_viz = weights_pre
+        return weights
+
+    #======================================================================
+    # Odom
+    #======================================================================
+
+
+    def odom_callback(self, msg):
+        
+        self.move_particles(msg)
+
+    def move_particles(self,msg):
+
+        position = msg.pose.pose.position
+        orientation = msg.pose.pose.orientation
+        _, _, yaw = tft.euler_from_quaternion([orientation.x, orientation.y, 
+                                              orientation.z, orientation.w])
+
+        current_odom = np.array([position.x, position.y, yaw])
+
+        if self.last_odom is not None:
+            delta = self.compute_motion(self.last_odom, current_odom)
+            
+            self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha,
+                                                              self.occupancy_map, self.resolution,
+                                                              self.origin_np[0], self.origin_np[1])
+            
+            self.particles_prev = self.particles.copy()
+            self.particles = self.particles_prop.copy()
+            
+
+        self.last_odom = current_odom
+
+    def compute_motion(self, odom1, odom2):
+        dx = odom2[0] - odom1[0]
+        dy = odom2[1] - odom1[1]
+        dtheta = normalize_angle(odom2[2] - odom1[2])
+
+        rot1 = np.arctan2(dy, dx) - odom1[2]
+        trans = np.hypot(dx, dy)
+        rot2 = dtheta - rot1
+
+        return rot1, trans, rot2
+
+
+    #======================================================================
+    # Resample
+    #======================================================================
 
     def resample_amcl_simple(self):
 
@@ -172,50 +254,6 @@ class AMCMHLocalizer:
         self.particles = np.vstack((resampled_particles,random_particles))
         self.weights   = np.full(N,1/N)
 
-
-    def resample_valid_particles_lvr(self):
-
-        N = self.num_particles
-        p_random = min(0.5, max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9)))
-
-        # 1. Filtra partículas válidas (mantido da versão original)
-        valid_indices = compute_valid_indices(
-            self.particles, self.occupancy_map,
-            self.resolution, self.origin_np[0], self.origin_np[1]
-        )
-
-        if len(valid_indices) == 0:
-            rospy.logwarn("Reinicializando partículas: nenhuma válida.")
-            self.particles = self.initialize_particles()
-            self.weights.fill(1.0 / N)
-            return
-
-        valid_particles = self.particles[valid_indices]
-        valid_weights = self.weights[valid_indices]
-        valid_weights /= np.sum(valid_weights)
-
-        # 2. Gera partículas aleatórias (anti-kidnapping - mantido)
-        num_random = int(p_random * N)
-        random_particles = reinitialize_particles_numba(
-            num_random, 
-            self.occupancy_map,
-            self.resolution,
-            self.origin_np[0],
-            self.origin_np[1]
-        )
-
-        # 3. Substitui KLD por Low Variance Sampling puro
-        num_lvs = N - num_random  # Número de partículas para LVS
-        resampled_particles, _ = low_variance_resample_amcl(
-            valid_particles,
-            valid_weights,
-            num_lvs  # Novo parâmetro para controle do tamanho
-        )
-
-        # 4. Combina e atualiza pesos (uniformemente, como no AMCL)
-        self.particles = np.vstack((random_particles, resampled_particles))
-        self.weights.fill(1.0 / N)  # Mantém N constante
-        self.num_particles = N  # Garante consistência
 
 
 
@@ -267,6 +305,12 @@ class AMCMHLocalizer:
         self.num_particles = len(self.particles)
 
 
+
+
+    #======================================================================
+    # Publish
+    #======================================================================
+
     def publish_particles(self):
         marker_array = MarkerArray()
         weights = self.weights
@@ -299,39 +343,6 @@ class AMCMHLocalizer:
             marker_array.markers.append(marker)
         
         self.marker_pub.publish(marker_array)
-
-    def odom_callback(self, msg):
-        position = msg.pose.pose.position
-        orientation = msg.pose.pose.orientation
-        _, _, yaw = tft.euler_from_quaternion([orientation.x, orientation.y, 
-                                              orientation.z, orientation.w])
-
-        current_odom = np.array([position.x, position.y, yaw])
-
-        if self.last_odom is not None:
-            delta = self.compute_motion(self.last_odom, current_odom)
-            self.particles = apply_motion_model_parallel(self.particles,delta,self.alpha,
-                                                              self.occupancy_map, self.resolution,
-                                                              self.origin_np[0], self.origin_np[1])
-
-        self.last_odom = current_odom
-
-    def compute_motion(self, odom1, odom2):
-        dx = odom2[0] - odom1[0]
-        dy = odom2[1] - odom1[1]
-        dtheta = normalize_angle(odom2[2] - odom1[2])
-
-        rot1 = np.arctan2(dy, dx) - odom1[2]
-        trans = np.hypot(dx, dy)
-        rot2 = dtheta - rot1
-
-        return rot1, trans, rot2
-
-    def lidar_callback(self, msg):
-        self.update_particles_mh(msg)
-        self.publish_estimate()
-        self.resample_amcl_simple()
-        self.publish_particles()
 
     
     def publish_estimate(self):
