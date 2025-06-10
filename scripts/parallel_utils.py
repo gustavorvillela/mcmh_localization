@@ -35,8 +35,8 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
         valid_count = 0
 
         for j in range(len(scan_ranges)):
-            if j % 10 != 0:  # downsample a cada 10 feixes
-                continue
+            #if j % 10 != 0:  # downsample a cada 10 feixes
+            #    continue
 
             r = scan_ranges[j]
             if np.isfinite(r) and r < max_range:
@@ -76,7 +76,6 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
         p_old = old_weights[i]
         p_new = likelihoods[i]
         alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        #alpha = 1
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
@@ -165,9 +164,9 @@ def compute_valid_mask(particles, occupancy_map, map_resolution, origin_x, origi
 
 
 @njit
-def low_variance_resample_numba(particles, weights):
-    N = particles.shape[0]
-    new_particles = np.empty_like(particles)
+def low_variance_resample_numba(particles, weights,N):
+    
+    new_particles = np.zeros((N,3), dtype=np.float32)
     new_weights = np.full(N, 1.0 / N, dtype=np.float32)
 
     r = np.random.uniform(0.0, 1.0 / N)

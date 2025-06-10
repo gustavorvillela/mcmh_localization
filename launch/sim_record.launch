@@ -1,0 +1,21 @@
+<launch>
+  <!-- Argumentos -->
+  <arg name="world" default="world"/>
+  <arg name="record" default="true"/>
+  <arg name="bag_name" default="sim_bag"/>
+
+  <!-- Gazebo com mapa e TurtleBot -->
+  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_$(arg world).launch" />
+  <include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch" />
+  <include file="$(find turtlebot3_teleop)/launch/turtlebot3_teleop_key.launch" />
+
+  <!-- Mapa -->
+  <arg name="map_file" default="$(find mcmh_localization)/maps/map_$(arg world).yaml"/>
+  <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
+
+  <!-- Gravação do rosbag -->
+  <group if="$(arg record)">
+    <node name="rosbag_record" pkg="rosbag" type="record" output="screen"
+          args="-O $(find mcmh_localization)/bags/$(arg bag_name).bag /scan /odom /map /tf /tf_static /gazebo/model_states /cmd_vel" />
+  </group>
+</launch>

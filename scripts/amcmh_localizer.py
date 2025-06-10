@@ -10,7 +10,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_amcl, normalize_angle_array, kld_sampling_amcl, reinitialize_particles_numba,parallel_resample_simple
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, reinitialize_particles_numba,parallel_resample_simple
 
 class AMCMHLocalizer:
     def __init__(self):
@@ -45,7 +45,7 @@ class AMCMHLocalizer:
         self.max_particles = self.max_particles = rospy.get_param('max_particles', 500)
         self.w_slow = 0.0
         self.w_fast = 0.0
-        self.alpha_slow = 0.0001  # taxa de aprendizado lenta
+        self.alpha_slow = 0.001  # taxa de aprendizado lenta
         self.alpha_fast = 0.1   # taxa de aprendizado rápida
         # Carrega o mapa
         self.load_map()
@@ -189,7 +189,7 @@ class AMCMHLocalizer:
 
         if self.use_adaptive:
 
-            self.resample_amcl_simple()
+            self.resample_amcl_lvr()
 
         else:
 
@@ -288,6 +288,22 @@ class AMCMHLocalizer:
         self.particles = np.vstack((resampled_particles,random_particles))
         self.weights   = np.full(N,1/N)
 
+    def resample_amcl_lvr(self):
+
+        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+
+        N = self.num_particles
+        N_random = int(p_random * N)
+        N_resampled = N - N_random
+
+        resampled_particles, _ = low_variance_resample_numba(self.particles,self.weights,N_resampled)
+
+        random_particles = generate_valid_particles(N_random,self.min_coords,self.max_coords,self.occupancy_map,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1])
+        
+        self.particles = np.vstack((resampled_particles,random_particles))
+        self.weights   = np.full(N,1/N)
+
 
     def resample_simple(self):
 
@@ -297,38 +313,17 @@ class AMCMHLocalizer:
 
 
 
-    def resample_amcl_particles_kld(self):
+    def resample_amcl_kld(self):
+        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+
         N = self.num_particles
-        p_random = min(0.5, max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9)))
-
-        valid_indices = compute_valid_indices(
-            self.particles, self.occupancy_map,
-            self.resolution, self.origin_np[0], self.origin_np[1]
-        )
-
-        if len(valid_indices) == 0:
-            rospy.logwarn("Reinicializando partículas: nenhuma válida.")
-            self.particles = self.initialize_particles()
-            self.weights.fill(1.0 / self.num_particles)
-            return
-
-        valid_particles = self.particles[valid_indices]
-        valid_weights = self.weights[valid_indices]
-        valid_weights /= np.sum(valid_weights)
-
-        # Partículas aleatórias fora do Numba
-        num_random = int(p_random * N)
-        random_particles = reinitialize_particles_numba(num_random, 
-                                                        self.occupancy_map,
-                                                        self.resolution,
-                                                        self.origin_np[0],
-                                                        self.origin_np[1]
-                                                        )
+        N_random = int(p_random * N)
+        N_resampled = N - N_random
 
         # KLD Sampling com Numba
         resampled_particles = kld_sampling_amcl(
-            valid_particles,
-            valid_weights,
+            self.particles,
+            self.weights,
             self.kld_bin_size_xy,
             self.kld_bin_size_theta,
             self.kld_epsilon,
@@ -337,9 +332,17 @@ class AMCMHLocalizer:
             self.min_particles
         )
 
+
+        random_particles = generate_valid_particles(N_random,self.min_coords,self.max_coords,self.occupancy_map,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1])
+
         # Junta
         self.particles = np.vstack((random_particles, resampled_particles))
         self.weights   = np.full(len(self.particles), 1.0 / len(self.particles))
+
+        if len(self.particles) != N:
+
+            rospy.loginfo(f"Particle update!\n From: {N}  To: {len(self.particles)}")
         
 
         self.num_particles = len(self.particles)
