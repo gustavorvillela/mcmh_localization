@@ -3,15 +3,29 @@
   <arg name="bag_file" default="$(env BAG_FILE)"/>
   <arg name="mode" default="MCL"/>
 
+  <!-- Define nome do arquivo de resultado (sem extensão) -->
+  <arg name="result_name" default=""/>
+
   <!-- Carrega o parâmetro do modo -->
   <param name="localization_mode" value="$(arg mode)"/>
 
-  <!-- Nó do seu localizador -->
+  <!-- Carrega parâmetros gerais -->
+  <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
+
+  <!-- Nó do localizador -->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen" />
 
   <!-- Pose broadcaster -->
   <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen" />
 
-  <!-- Player do rosbag -->
+  <!-- Player do rosbag com relógio simulado -->
   <node pkg="rosbag" type="play" name="play_bag" args="--clock $(arg bag_file)" />
+
+  <!-- Avaliação da estimativa vs ground truth -->
+  <node name="evaluate_localization" pkg="mcmh_localization" type="evaluate_localization.py" output="screen">
+    <param name="result_name" value="$(find mcmh_localization)/results/$(arg result_name)"/>
+    <param name="est_topic" value="/mcmh_estimated_pose"/>
+    <param name="gt_topic" value="/gazebo/model_states"/>
+    <param name="robot_name" value="turtlebot3_waffle"/>
+  </node>
 </launch>

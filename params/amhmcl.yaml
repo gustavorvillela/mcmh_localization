@@ -1,6 +1,6 @@
-localization_mode: "MHAMCL"
+#localization_mode: "MHAMCL"
 
-init_particles: 2000
+init_particles: 1000
 
 alpha1: 0.01
 alpha2: 0.01
