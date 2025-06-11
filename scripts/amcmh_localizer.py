@@ -5,17 +5,17 @@ from numpy.random import choice
 import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import PoseWithCovarianceStamped, Point
+from geometry_msgs.msg import PoseWithCovarianceStamped, Pose
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, reinitialize_particles_numba,parallel_resample_simple
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple
 
 class AMCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
-        self.mode = rospy.get_param('localization_mode', 'AMCL')  # padrão: AMCL
+        self.mode = rospy.get_param('localization_mode', 'MHAMCL')  # padrão: AMCL
         self.use_mh = 'MH' in self.mode
         self.use_adaptive = 'A' in self.mode  # AMCL ou MHAMCL usam KLD
 
@@ -39,6 +39,26 @@ class AMCMHLocalizer:
         self.kld_n_max = self.num_particles
         self.kld_z = rospy.get_param('kld_z', 0.99)
 
+        self.initial_pose = None  # Armazenará a pose inicial [x, y, theta]
+        self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Covariância inicial (x, y em metros, theta em rad)
+        self.initialized = False  # Flag para controle
+
+        self.timeout = 10
+        rospy.loginfo("Aguardando pose inicial (máx. %.1fs)..." % self.timeout)
+
+        # Primeiro verifica se o tópico existe
+        try:
+            rospy.wait_for_message('/initial_pose', PoseWithCovarianceStamped, timeout=10.0)
+        except rospy.ROSException:
+            rospy.logwarn("Tópico /initial_pose não encontrado. Verifique se o publisher está ativo.")
+            pass
+        
+
+        try:
+            msg = rospy.wait_for_message('/initial_pose', PoseWithCovarianceStamped, timeout=10.0)
+            self.initial_pose_callback(msg)
+        except:
+            pass
 
         #AMCL
         self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
@@ -48,8 +68,10 @@ class AMCMHLocalizer:
         self.alpha_slow = 0.001  # taxa de aprendizado lenta
         self.alpha_fast = 0.1   # taxa de aprendizado rápida
         # Carrega o mapa
-        self.load_map()
         
+        
+        self.load_map()
+
         # Inicializa partículas
         self.particles = self.initialize_particles()
         self.particles_prop = np.copy(self.particles)
@@ -62,6 +84,7 @@ class AMCMHLocalizer:
         # Subscribers
         rospy.Subscriber('/scan', LaserScan, self.lidar_callback)
         rospy.Subscriber('/odom', Odometry, self.odom_callback)
+        
         
         # Publishers
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=1)
@@ -96,7 +119,7 @@ class AMCMHLocalizer:
             (self.map_data.shape[0] - free_cells[0] - 1) * self.resolution + self.origin.y
         ))
         
-        self.kdtree = KDTree(self.free_cells_coords)
+        #self.kdtree = KDTree(self.free_cells_coords)
         self.distance_map = distance_transform_edt(self.map_data == 0) * self.resolution
 
     def initialize_particles(self):
@@ -104,12 +127,55 @@ class AMCMHLocalizer:
         self.min_coords = np.min(self.free_cells_coords, axis=0)
         self.max_coords = np.max(self.free_cells_coords, axis=0)
 
-        final_particles = generate_valid_particles(self.num_particles, self.min_coords, self.max_coords,
+        if self.initialized == True:
+            rospy.loginfo("Inicializando partículas com distribuição gaussiana")
+            final_particles = initialize_gaussian_parallel(self.initial_pose,self.initial_cov,self.num_particles,
+                                                           self.distance_map,self.resolution,self.origin_np)
+            
+        else:
+            rospy.loginfo("Inicializando partículas uniformemente no mapa")
+            final_particles = generate_valid_particles(self.num_particles, self.min_coords, self.max_coords,
                                              self.occupancy_map, self.resolution, 
                                              self.origin_np[0], self.origin_np[1])
 
         
         return final_particles
+    
+    def initial_pose_callback(self, msg):
+        """Callback para receber a pose inicial (geometry_msgs/PoseWithCovarianceStamped)"""
+        pose = msg.pose.pose
+        self.initial_pose = np.array([
+            pose.position.x,
+            pose.position.y,
+            self.get_yaw_from_quaternion(pose.orientation)  # Implemente esta função
+        ])
+        self.initialized = True
+        rospy.loginfo(f"Pose inicial recebida: {self.initial_pose}")
+
+    def wait_for_initial_pose(self, timeout=5.0):
+        """
+        Espera a pose inicial por um tempo (em segundos). 
+        Se não receber dentro do tempo, segue com inicialização uniforme.
+        """
+        rospy.loginfo("Aguardando pose inicial (máx. %.1fs)..." % timeout)
+        start_time = rospy.Time.now().to_sec()
+        rate = rospy.Rate(10)
+
+        while not rospy.is_shutdown():
+            if self.initialized:
+                rospy.loginfo("Pose inicial recebida.")
+                break
+            if rospy.Time.now().to_sec() - start_time > timeout:
+                rospy.logwarn("Timeout: pose inicial não recebida. Inicializando uniformemente.")
+                break
+            rate.sleep()
+
+
+    def get_yaw_from_quaternion(self, quat):
+        """Converte quaternion para ângulo yaw (em radianos)"""
+        x, y, z, w = quat.x, quat.y, quat.z, quat.w
+        yaw = np.arctan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+        return yaw
     
     def world_to_map(self, x, y):
         mx = int((x - self.origin.x) / self.resolution)

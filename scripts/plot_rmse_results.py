@@ -70,7 +70,7 @@ def main():
             
         # Gráfico de evolução temporal
         plt.figure(figsize=(12, 6))
-        colors = {'AMCL': '#1f77b4', 'MCL': '#ff7f0e', 'MHAMCL': '#2ca02c'}
+        colors = {'MCL': '#ff7f0e','AMCL': '#1f77b4','MHMCL': "#b4331f" , 'MHAMCL': '#2ca02c'}
         
         for algo, data in algorithms.items():
             if data['times'] is not None:
@@ -148,13 +148,13 @@ def generate_html_summary(data, output_dir):
     
     # Tabela resumo
     html_content += "<h2>Resumo Comparativo</h2><table>"
-    html_content += "<tr><th>Teste</th><th>AMCL</th><th>MCL</th><th>MHAMCL</th></tr>"
+    html_content += "<tr><th>Teste</th><th>MCL</th><th>AMCL</th><th>MHMCL</th><th>MHAMCL</th></tr>"
     
     for test_name in sorted(data.keys()):
         html_content += f"<tr><td>{test_name.replace('_', ' ').title()}</td>"
         best_rmse = min([v['rmse'] for v in data[test_name].values() if v['rmse'] is not None], default=None)
         
-        for algo in ['AMCL', 'MCL', 'MHAMCL']:
+        for algo in ['MCL', 'AMCL', 'MHMCL','MHAMCL']:
             if algo in data[test_name] and data[test_name][algo]['rmse'] is not None:
                 rmse = data[test_name][algo]['rmse']
                 cell_class = "best" if rmse == best_rmse else ""

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 BAG_DIR="$(rospack find mcmh_localization)/bags"
-MODES=("MCL" "AMCL" "MHAMCL")
+MODES=("MCL" "MHMCL" "AMCL" "MHAMCL")
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 mkdir -p "$RESULTS_DIR"
 

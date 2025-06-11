@@ -1,13 +1,13 @@
 #localization_mode: "MHAMCL"
 
-init_particles: 1000
+init_particles: 2000
 
 alpha1: 0.01
 alpha2: 0.01
-alpha3: 0.05
-alpha4: 0.05
+alpha3: 0.02
+alpha4: 0.02
 
 kld_epsilon: 0.01
 kld_z: 0.99
 min_particles: 100
-max_particles: 2000
+max_particles: 5000

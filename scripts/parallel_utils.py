@@ -312,3 +312,27 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
         count += 1
     
     return sampled_particles[:count]  # Retorna apenas as amostradas
+
+
+def initialize_gaussian_parallel(mean, cov, num_particles, distance_map, resolution, origin):
+    samples = np.random.multivariate_normal(mean, cov, size=num_particles)
+    particles = validate_samples(samples, distance_map, resolution, origin)
+    return particles
+
+@njit(parallel=True)
+def validate_samples(samples, distance_map, resolution, origin):
+    num_particles = samples.shape[0]
+    valid_particles = np.empty((num_particles, 3), dtype=np.float64)
+
+    for i in prange(num_particles):
+        sample = samples[i]
+        mx = int((sample[0] - origin[0]) / resolution)
+        my = int((sample[1] - origin[1]) / resolution)
+
+        # Se inválido, zera — pode ajustar para lidar depois
+        if 0 <= mx < distance_map.shape[1] and 0 <= my < distance_map.shape[0] and distance_map[my, mx] < 1.0:
+            valid_particles[i] = sample
+        else:
+            valid_particles[i] = np.array([0.0, 0.0, 0.0])  # Pode fazer pós-processamento depois
+
+    return valid_particles
