@@ -2,3 +2,5 @@
 *.log
 *.swp
 __pycache__/
+results/
+.vscode/
