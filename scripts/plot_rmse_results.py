@@ -28,6 +28,43 @@ def load_error_data(filepath):
         print(f"Erro ao ler {filepath}: {str(e)}")
         return None, None, None
 
+def load_trajectory_data(filepath):
+    """Carrega dados de trajetória do arquivo poses_*.txt"""
+    data = {
+        'time': [],
+        'est_x': [],
+        'est_y': [],
+        'est_yaw': [],
+        'gt_x': [],
+        'gt_y': [],
+        'gt_yaw': []
+    }
+    
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if line.startswith('time,est_x'):
+                    continue
+                elif ',' in line:
+                    parts = line.strip().split(',')
+                    if len(parts) == 7:
+                        data['time'].append(float(parts[0]))
+                        data['est_x'].append(float(parts[1]))
+                        data['est_y'].append(float(parts[2]))
+                        data['est_yaw'].append(float(parts[3]))
+                        data['gt_x'].append(float(parts[4]))
+                        data['gt_y'].append(float(parts[5]))
+                        data['gt_yaw'].append(float(parts[6]))
+        
+        # Convert to numpy arrays
+        for key in data:
+            data[key] = np.array(data[key])
+            
+        return data
+    except Exception as e:
+        print(f"Erro ao ler trajetória {filepath}: {str(e)}")
+        return None
+
 def main():
     results_dir = os.path.join(os.path.dirname(__file__), '../results')
     if not os.path.exists(results_dir):
@@ -39,19 +76,27 @@ def main():
     
     # Processa cada arquivo
     for filename in os.listdir(results_dir):
-        if filename.endswith('.txt') and '_' in filename:
+        if filename.endswith('.txt') and not filename.startswith('poses_'):
             parts = filename.split('_')
             algorithm = parts[-1].replace('.txt', '')
             test_name = '_'.join(parts[:-1])
             
+            # Load error data
             filepath = os.path.join(results_dir, filename)
             times, errors, final_rmse = load_error_data(filepath)
+            
+            # Load trajectory data if available
+            traj_filepath = os.path.join(results_dir, f'poses_{filename}')
+            trajectory_data = None
+            if os.path.exists(traj_filepath):
+                trajectory_data = load_trajectory_data(traj_filepath)
             
             if times is not None and errors is not None:
                 all_data[test_name][algorithm] = {
                     'times': times,
                     'errors': errors,
-                    'rmse': final_rmse
+                    'rmse': final_rmse,
+                    'trajectory': trajectory_data
                 }
                 print(f"Processado: {filename} | Pontos: {len(times)} | RMSE: {final_rmse:.4f}")
 
@@ -68,28 +113,60 @@ def main():
         if len(algorithms) < 1:
             continue
             
-        # Gráfico de evolução temporal
-        plt.figure(figsize=(12, 6))
-        colors = {'MCL': '#ff7f0e','AMCL': '#1f77b4','MHMCL': "#b4331f" , 'MHAMCL': '#2ca02c'}
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
+        colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c'}
         
+        # Plot 1: Error evolution
         for algo, data in algorithms.items():
             if data['times'] is not None:
-                plt.plot(data['times'], data['errors'], 
+                ax1.plot(data['times'], data['errors'], 
                         label=f'{algo} (RMSE: {data["rmse"]:.3f})',
                         color=colors.get(algo, '#666666'),
                         linewidth=2,
                         alpha=0.8)
         
-        plt.title(f'Evolução do Erro - {test_name.replace("_", " ").title()}')
-        plt.xlabel('Tempo (s)')
-        plt.ylabel('Erro (m)')
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.3)
+        ax1.set_title(f'Evolução do Erro - {test_name.replace("_", " ").title()}')
+        ax1.set_xlabel('Tempo (s)')
+        ax1.set_ylabel('Erro (m)')
+        ax1.legend()
+        ax1.grid(True, linestyle='--', alpha=0.3)
         
-        time_plot_path = os.path.join(plots_dir, f'{test_name}_evolution.png')
-        plt.savefig(time_plot_path, bbox_inches='tight', dpi=150)
+        # Plot 2: Trajectory comparison
+        for algo, data in algorithms.items():
+            if data['trajectory'] is not None:
+                traj = data['trajectory']
+                ax2.plot(traj['gt_x'], traj['gt_y'], 
+                         color='#333333', linestyle='--', 
+                         label='Ground Truth' if algo == list(algorithms.keys())[0] else '', 
+                         linewidth=2)
+                ax2.plot(traj['est_x'], traj['est_y'],
+                         color=colors.get(algo, '#666666'),
+                         label=algo,
+                         linewidth=1.5,
+                         alpha=0.8)
+                
+                # Plot start and end markers
+                ax2.scatter(traj['gt_x'][0], traj['gt_y'][0], 
+                            color='green', marker='o', s=50, 
+                            label='Início' if algo == list(algorithms.keys())[0] else '')
+                ax2.scatter(traj['gt_x'][-1], traj['gt_y'][-1], 
+                            color='red', marker='x', s=50,
+                            label='Fim' if algo == list(algorithms.keys())[0] else '')
+        
+        ax2.set_title(f'Comparação de Trajetórias - {test_name.replace("_", " ").title()}')
+        ax2.set_xlabel('Posição X (m)')
+        ax2.set_ylabel('Posição Y (m)')
+        ax2.legend()
+        ax2.grid(True, linestyle='--', alpha=0.3)
+        ax2.axis('equal')
+        
+        # Save combined plot
+        plot_path = os.path.join(plots_dir, f'{test_name}_combined.png')
+        plt.tight_layout()
+        plt.savefig(plot_path, bbox_inches='tight', dpi=150)
         plt.close()
-        print(f"Gráfico temporal salvo: {time_plot_path}")
+        print(f"Gráfico combinado salvo: {plot_path}")
 
         # Gráfico de barras comparativo (RMSE final)
         plt.figure(figsize=(8, 5))
@@ -171,8 +248,8 @@ def generate_html_summary(data, output_dir):
         html_content += f"""
         <div class="plot-container">
             <div class="plot">
-                <h3>{test_name.replace('_', ' ').title()} - Evolução</h3>
-                <img src="plots/{test_name}_evolution.png" alt="Evolução do erro">
+                <h3>{test_name.replace('_', ' ').title()} - Análise Completa</h3>
+                <img src="plots/{test_name}_combined.png" alt="Análise completa">
             </div>
             <div class="plot">
                 <h3>{test_name.replace('_', ' ').title()} - RMSE Final</h3>

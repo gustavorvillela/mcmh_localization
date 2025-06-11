@@ -20,6 +20,23 @@
   <!-- Carrega o arquivo YAML -->
   <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
 
+  <!-- Publisher contínuo de pose inicial -->
+  <node name="continuous_initial_pose_publisher" pkg="mcmh_localization" type="initial_pose_pub.py" output="screen">
+    <param name="x" value="-2.0"/>
+    <param name="y" value="-0.5"/>
+    <param name="yaw" value="0.0"/>
+    <param name="publish_rate" value="1.0"/>
+    <rosparam param="covariance">
+      [0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.1]
+    </rosparam>
+  </node>
+        
+        
   <!-- Nó do estimador baseado em MCMC-->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen" /> 
 

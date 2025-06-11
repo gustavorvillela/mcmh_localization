@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import rospy
 import numpy as np
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, Pose
 from gazebo_msgs.msg import ModelStates
 import os
 import time
+from tf.transformations import euler_from_quaternion
 
 class Evaluator:
     def __init__(self):
@@ -16,21 +17,27 @@ class Evaluator:
         self.start_time = None
         self.eval_start_time = None
         
-        # Corrigido: Removida a extensão .txt duplicada
-        result_name = rospy.get_param("~result_name", "eval")
+         # Get just the base filename, not full path
+        result_param = rospy.get_param("~result_name", "eval")
+        result_name = os.path.basename(result_param).replace(".txt", "")
+        
+        # Create results directory
         results_dir = os.path.join(os.path.dirname(__file__), "../results")
+        pose_dir = os.path.join(os.path.dirname(__file__), "../results")
         os.makedirs(results_dir, exist_ok=True)
 
-        # Garante que o nome do arquivo termine com .txt (sem duplicação)
-        if not result_name.endswith('.txt'):
-            result_name += '.txt'
         
-        self.output_file = os.path.join(results_dir, result_name)
+        # Create file paths
+        self.output_file = os.path.join(results_dir, f"{result_name}.txt")
+        
+        self.poses_file = os.path.join(pose_dir, f"poses_{result_name}.txt")
 
         self.gt_pose = None
+        self.est_pose = None  # Nova variável para armazenar pose estimada
         self.errors = []
-        self.timestamps = []  # Novo: armazena os timestamps dos erros
-        self.error_history = []  # Novo: armazena histórico completo
+        self.timestamps = []
+        self.error_history = []
+        self.pose_history = []  # Novo: armazena histórico completo de poses
 
         rospy.Subscriber(self.est_topic, PoseWithCovarianceStamped, self.estimated_callback)
         rospy.Subscriber(self.gt_topic, ModelStates, self.gt_callback)
@@ -43,16 +50,39 @@ class Evaluator:
             self.eval_start_time = rospy.Time.now()
             
         est_position = msg.pose.pose.position
-        error = np.linalg.norm(np.array([
+        est_orientation = msg.pose.pose.orientation
+        self.est_pose = msg.pose.pose  # Armazena a pose estimada completa
+        
+        # Calcula erro de posição
+        pos_error = np.linalg.norm(np.array([
             est_position.x - self.gt_pose.position.x,
             est_position.y - self.gt_pose.position.y,
         ]))
         
-        # Novo: armazena timestamp e erro
+        # Calcula erro de orientação (yaw)
+        gt_yaw = self.get_yaw_from_pose(self.gt_pose)
+        est_yaw = self.get_yaw_from_pose(self.est_pose)
+        yaw_error = abs(gt_yaw - est_yaw)
+        
+        # Armazena dados
         elapsed_time = (rospy.Time.now() - self.eval_start_time).to_sec()
         self.timestamps.append(elapsed_time)
-        self.errors.append(error)
-        self.error_history.append((elapsed_time, error))  # Armazena tuplas (tempo, erro)
+        self.errors.append(pos_error)
+        self.error_history.append((elapsed_time, pos_error))
+        
+        # Novo: armazena poses completas
+        self.pose_history.append((
+            elapsed_time,
+            est_position.x, est_position.y, est_yaw,
+            self.gt_pose.position.x, self.gt_pose.position.y, gt_yaw
+        ))
+
+    def get_yaw_from_pose(self, pose):
+        """Extrai o ângulo yaw de uma mensagem Pose"""
+        orientation = pose.orientation
+        quat = [orientation.x, orientation.y, orientation.z, orientation.w]
+        _, _, yaw = euler_from_quaternion(quat)
+        return yaw
 
     def gt_callback(self, msg):
         if self.robot_name not in msg.name:
@@ -87,19 +117,23 @@ class Evaluator:
             
         rmse = np.sqrt(np.mean(np.square(self.errors)))
         
-        # Novo: salva histórico completo e RMSE final
+        # Salva erros e RMSE (arquivo original)
         with open(self.output_file, "w") as f:
-            # Escreve cabeçalho
             f.write("time,error\n")
-            
-            # Escreve todos os dados históricos
             for timestamp, error in self.error_history:
                 f.write(f"{timestamp:.3f},{error:.4f}\n")
-                
-            # Escreve RMSE no final
             f.write(f"\nRMSE final: {rmse:.4f}\n")
+        
+        # Novo: Salva poses estimadas e ground truth
+        with open(self.poses_file, "w") as f:
+            f.write("time,est_x,est_y,est_yaw,gt_x,gt_y,gt_yaw\n")
+            for data in self.pose_history:
+                f.write(f"{data[0]:.3f},{data[1]:.4f},{data[2]:.4f},{data[3]:.4f},"
+                        f"{data[4]:.4f},{data[5]:.4f},{data[6]:.4f}\n")
             
-        rospy.loginfo(f"Resultados salvos em: {self.output_file}")
+        rospy.loginfo(f"Resultados salvos:")
+        rospy.loginfo(f"- Dados de erro: {self.output_file}")
+        rospy.loginfo(f"- Dados de poses: {self.poses_file}")
         rospy.loginfo(f"RMSE final: {rmse:.4f}")
 
 
