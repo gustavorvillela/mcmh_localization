@@ -2,7 +2,6 @@
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from collections import defaultdict
 
 def load_error_data(filepath):
@@ -77,9 +76,15 @@ def main():
     # Processa cada arquivo
     for filename in os.listdir(results_dir):
         if filename.endswith('.txt') and not filename.startswith('poses_'):
-            parts = filename.split('_')
-            algorithm = parts[-1].replace('.txt', '')
-            test_name = '_'.join(parts[:-1])
+            parts = filename.replace('.txt','').split('_')
+            if parts[-1].startswith("run"):
+                run_id = parts[-1]
+                algorithm = parts[-2]
+                test_name = '_'.join(parts[:-2])
+            else:
+                run_id = None
+                algorithm = parts[-1]
+                test_name = '_'.join(parts[:-1])
             
             # Load error data
             filepath = os.path.join(results_dir, filename)
@@ -92,21 +97,43 @@ def main():
                 trajectory_data = load_trajectory_data(traj_filepath)
             
             if times is not None and errors is not None:
-                all_data[test_name][algorithm] = {
+                if algorithm not in all_data[test_name]:
+                    all_data[test_name][algorithm] = {
+                        'runs': [],
+                        'rmses': []
+                    }
+                all_data[test_name][algorithm]['runs'].append({
                     'times': times,
                     'errors': errors,
                     'rmse': final_rmse,
                     'trajectory': trajectory_data
-                }
+                })
+                if final_rmse is not None:
+                    all_data[test_name][algorithm]['rmses'].append(final_rmse)
                 print(f"Processado: {filename} | Pontos: {len(times)} | RMSE: {final_rmse:.4f}")
 
     if not all_data:
         print("Nenhum dado válido encontrado.")
         return
 
+    # Pós-processamento: calcular média, std e melhor run
+    for test_name, algos in all_data.items():
+        for algo, data in algos.items():
+            if data['rmses']:
+                data['mean_rmse'] = np.mean(data['rmses'])
+                data['std_rmse'] = np.std(data['rmses'])
+                best_idx = np.argmin(data['rmses'])
+                data['best_run'] = data['runs'][best_idx]
+            else:
+                data['mean_rmse'] = None
+                data['std_rmse'] = None
+                data['best_run'] = None
+
     # Cria diretório para os gráficos se não existir
     plots_dir = os.path.join(results_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
+
+    colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c'}
 
     # Gera gráficos para cada teste
     for test_name, algorithms in all_data.items():
@@ -115,16 +142,16 @@ def main():
             
         # Create figure with two subplots
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
-        colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c'}
         
-        # Plot 1: Error evolution
+        # Plot 1: Error evolution (só melhor run)
         for algo, data in algorithms.items():
-            if data['times'] is not None:
-                ax1.plot(data['times'], data['errors'], 
-                        label=f'{algo} (RMSE: {data["rmse"]:.3f})',
+            best_run = data.get('best_run')
+            if best_run and best_run['times'] is not None:
+                ax1.plot(best_run['times'], best_run['errors'], 
+                        label=f'{algo} (best RMSE: {best_run["rmse"]:.3f})',
                         color=colors.get(algo, '#666666'),
                         linewidth=2,
-                        alpha=0.8)
+                        alpha=0.9)
         
         ax1.set_title(f'Evolução do Erro - {test_name.replace("_", " ").title()}')
         ax1.set_xlabel('Tempo (s)')
@@ -132,19 +159,20 @@ def main():
         ax1.legend()
         ax1.grid(True, linestyle='--', alpha=0.3)
         
-        # Plot 2: Trajectory comparison
+        # Plot 2: Trajectory comparison (só melhor run)
         for algo, data in algorithms.items():
-            if data['trajectory'] is not None:
-                traj = data['trajectory']
+            best_run = data.get('best_run')
+            if best_run and best_run['trajectory'] is not None:
+                traj = best_run['trajectory']
                 ax2.plot(traj['gt_x'], traj['gt_y'], 
                          color='#333333', linestyle='--', 
                          label='Ground Truth' if algo == list(algorithms.keys())[0] else '', 
                          linewidth=2)
                 ax2.plot(traj['est_x'], traj['est_y'],
                          color=colors.get(algo, '#666666'),
-                         label=algo,
+                         label=f"{algo} (best RMSE {best_run['rmse']:.3f})",
                          linewidth=1.5,
-                         alpha=0.8)
+                         alpha=0.9)
                 
                 # Plot start and end markers
                 ax2.scatter(traj['gt_x'][0], traj['gt_y'][0], 
@@ -168,26 +196,29 @@ def main():
         plt.close()
         print(f"Gráfico combinado salvo: {plot_path}")
 
-        # Gráfico de barras comparativo (RMSE final)
+        # Gráfico de barras comparativo (média ± std)
         plt.figure(figsize=(8, 5))
         
         sorted_algs = sorted(algorithms.items(), 
-                           key=lambda x: x[1]['rmse'] if x[1]['rmse'] is not None else float('inf'))
+                           key=lambda x: x[1]['mean_rmse'] if x[1]['mean_rmse'] is not None else float('inf'))
         
         for i, (algo, data) in enumerate(sorted_algs):
-            if data['rmse'] is not None:
-                plt.bar(i, data['rmse'], 
+            if data['mean_rmse'] is not None:
+                plt.bar(i, data['mean_rmse'], 
+                       yerr=data['std_rmse'],
+                       capsize=5,
                        color=colors.get(algo, '#666666'),
                        label=algo,
                        width=0.6)
-                plt.text(i, data['rmse']/2, 
-                        f'{data["rmse"]:.3f}',
+                plt.text(i, data['mean_rmse']/2, 
+                        f'{data["mean_rmse"]:.3f}±{data["std_rmse"]:.3f}',
                         ha='center', va='center',
                         color='white',
-                        fontweight='bold')
-        
+                        fontweight='bold',
+                        fontsize=8)
+
         plt.xticks(range(len(sorted_algs)), [x[0] for x in sorted_algs])
-        plt.title(f'RMSE Final - {test_name.replace("_", " ").title()}')
+        plt.title(f'RMSE Final (média ± std) - {test_name.replace("_", " ").title()}')
         plt.ylabel('RMSE (m)')
         plt.grid(True, axis='y', linestyle='--', alpha=0.3)
         
@@ -224,18 +255,20 @@ def generate_html_summary(data, output_dir):
     """
     
     # Tabela resumo
-    html_content += "<h2>Resumo Comparativo</h2><table>"
+    html_content += "<h2>Resumo Comparativo (média ± std)</h2><table>"
     html_content += "<tr><th>Teste</th><th>MCL</th><th>AMCL</th><th>MHMCL</th><th>MHAMCL</th></tr>"
     
     for test_name in sorted(data.keys()):
         html_content += f"<tr><td>{test_name.replace('_', ' ').title()}</td>"
-        best_rmse = min([v['rmse'] for v in data[test_name].values() if v['rmse'] is not None], default=None)
+        all_rmses = [v['mean_rmse'] for v in data[test_name].values() if v['mean_rmse'] is not None]
+        best_rmse = min(all_rmses) if all_rmses else None
         
         for algo in ['MCL', 'AMCL', 'MHMCL','MHAMCL']:
-            if algo in data[test_name] and data[test_name][algo]['rmse'] is not None:
-                rmse = data[test_name][algo]['rmse']
+            if algo in data[test_name] and data[test_name][algo]['mean_rmse'] is not None:
+                rmse = data[test_name][algo]['mean_rmse']
+                std = data[test_name][algo]['std_rmse']
                 cell_class = "best" if rmse == best_rmse else ""
-                html_content += f'<td class="{cell_class}">{rmse:.4f}</td>'
+                html_content += f'<td class="{cell_class}">{rmse:.4f} ± {std:.4f}</td>'
             else:
                 html_content += "<td>N/A</td>"
         html_content += "</tr>"
@@ -252,7 +285,7 @@ def generate_html_summary(data, output_dir):
                 <img src="plots/{test_name}_combined.png" alt="Análise completa">
             </div>
             <div class="plot">
-                <h3>{test_name.replace('_', ' ').title()} - RMSE Final</h3>
+                <h3>{test_name.replace('_', ' ').title()} - RMSE Final (média ± std)</h3>
                 <img src="plots/{test_name}_rmse_comparison.png" alt="Comparação RMSE">
             </div>
         </div>
