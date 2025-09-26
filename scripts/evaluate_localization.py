@@ -117,24 +117,29 @@ class Evaluator:
             
         rmse = np.sqrt(np.mean(np.square(self.errors)))
         
-        # Salva erros e RMSE (arquivo original)
+        # --- Salva erros detalhados dessa execução ---
         with open(self.output_file, "w") as f:
             f.write("time,error\n")
             for timestamp, error in self.error_history:
                 f.write(f"{timestamp:.3f},{error:.4f}\n")
             f.write(f"\nRMSE final: {rmse:.4f}\n")
         
-        # Novo: Salva poses estimadas e ground truth
         with open(self.poses_file, "w") as f:
             f.write("time,est_x,est_y,est_yaw,gt_x,gt_y,gt_yaw\n")
             for data in self.pose_history:
                 f.write(f"{data[0]:.3f},{data[1]:.4f},{data[2]:.4f},{data[3]:.4f},"
                         f"{data[4]:.4f},{data[5]:.4f},{data[6]:.4f}\n")
-            
+
+        # --- NOVO: salva RMSE em um arquivo acumulado ---
+        summary_file = os.path.join(os.path.dirname(__file__), "../results/summary_results.txt")
+        with open(summary_file, "a") as f:
+            f.write(f"{os.path.basename(self.output_file)},{rmse:.4f}\n")
+
         rospy.loginfo(f"Resultados salvos:")
         rospy.loginfo(f"- Dados de erro: {self.output_file}")
         rospy.loginfo(f"- Dados de poses: {self.poses_file}")
         rospy.loginfo(f"RMSE final: {rmse:.4f}")
+
 
 
 if __name__ == "__main__":
