@@ -2,6 +2,35 @@ from numba import njit, prange
 import numpy as np
 
 @njit
+def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, grid_height):
+  """Raycasting para encontrar obstáculos."""
+  x, y = pose[0], pose[1]
+  dx = np.cos(angle)
+  dy = np.sin(angle)
+  step_size = 0.1
+  max_steps = int(max_range / step_size)
+
+  for i in range(1, max_steps + 1):
+      current_x = x + i * step_size * dx
+      current_y = y + i * step_size * dy
+
+      # Converte para coordenadas do grid
+      grid_x = int((current_x - limits[0]) / resolution)
+      grid_y = int((current_y - limits[2]) / resolution)
+
+      # Verifica limites
+      if not (0 <= grid_x < grid_width and 0 <= grid_y < grid_height):
+          return max_range
+
+      # Verifica ocupação
+      if grid_map[grid_y, grid_x] > 0.5:
+          return i * step_size
+
+  return max_range
+
+
+
+@njit
 def normalize_angle(theta):
     """
     Normaliza ângulo para o intervalo [-pi, pi].
@@ -181,6 +210,7 @@ def low_variance_resample_numba(particles, weights,N):
         new_particles[m] = particles[i]
 
     return new_particles, new_weights
+
 
 
 @njit
