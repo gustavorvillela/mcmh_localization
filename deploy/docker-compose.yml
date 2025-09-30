@@ -1,0 +1,20 @@
+
+services:
+  ros_noetic_dev:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: ros_noetic_dev
+    network_mode: host    # share host networking (works best with ROS)
+    volumes:
+      - ../app:/root/catkin_ws/src/mcmh_localization   # mount your source code
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=${XAUTHORITY}
+    devices:
+      - /dev/dri:/dev/dri       # GPU acceleration for RViz/Gazebo
+    stdin_open: true
+    tty: true
+    privileged: true            # needed for Gazebo physics
