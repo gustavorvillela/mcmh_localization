@@ -12,6 +12,7 @@ Clone this repository directly into your `catkin_ws/src` folder:
 ```bash
 cd ~/catkin_ws/src
 git clone https://github.com/gustavorvillela/mcmh_localization.git
+```
 
 ---
 
@@ -22,7 +23,7 @@ Run the installation script to automatically clone and configure the required Tu
 ```bash
 cd ~/catkin_ws/src/mcmh_localization
 bash install.sh
-
+```
 
 This step installs dependencies and prepares the workspace for building inside Docker.
 
@@ -33,12 +34,14 @@ Navigate to the deploy folder and build the Docker container:
 ```bash
 cd ~/catkin_ws/src/mcmh_localization/deploy
 docker compose build
+```
 
 
 Then start the container in detached mode:
 
 ```bash
 docker compose up -d
+```
 
 ## 💻 4. Access the ROS Noetic Container
 
@@ -46,6 +49,7 @@ Enter the running container interactively:
 
 ```bash
 docker exec -it ros_noetic_dev bash
+```
 
 
 Inside the container, you can now build and launch your workspace as usual:
@@ -54,3 +58,4 @@ Inside the container, you can now build and launch your workspace as usual:
 catkin_make
 source devel/setup.bash
 roslaunch mcmh_localization <your_launch_file>.launch
+```
