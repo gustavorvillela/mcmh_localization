@@ -2,14 +2,20 @@
 services:
   ros_noetic_dev:
     build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+      context: ../..
+      dockerfile: mcmh_localization/deploy/Dockerfile
     container_name: ros_noetic_dev
+    runtime: nvidia
     network_mode: host    # share host networking (works best with ROS)
     volumes:
       - ../app:/root/catkin_ws/src/mcmh_localization   # mount your source code
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ~/.gazebo/gui.ini:/root/.gazebo/gui.ini:ro
+      - /opt/ros/noetic/share/turtlebot3_description:/opt/ros/noetic/share/turtlebot3_description:ro
+      - ../../turtlebot3_diff:/root/catkin_ws/src/turtlebot3_diff
     environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - XAUTHORITY=${XAUTHORITY}

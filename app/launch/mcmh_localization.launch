@@ -4,7 +4,7 @@
   <env name="TURTLEBOT3_MODEL" value="$(arg model)"/>-->
 
   <!-- World -->
-  <arg name="world" default="house"/>
+  <arg name="world" default="world"/>
 
   <!-- Gazebo com mapa e TurtleBot -->
   <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_$(arg world).launch" />
@@ -40,8 +40,8 @@
   <!-- Nó do estimador baseado em MCMC-->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen" /> 
 
-
-  <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen" /> 
+  <!-- Nó para broadcast da pose estimada-->
+  <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen" />  
 
   <!-- RViz com visualização do mapa, robot e partículas -->
   <node pkg="rviz" type="rviz" name="rviz" args="-d $(find mcmh_localization)/rviz/mcmh_view.rviz" />
