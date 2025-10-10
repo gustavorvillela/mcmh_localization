@@ -2,6 +2,60 @@ from numba import njit, prange
 import numpy as np
 
 @njit
+def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, grid_height):
+  """Raycasting para encontrar obstáculos."""
+  x, y = pose[0], pose[1]
+  dx = np.cos(angle)
+  dy = np.sin(angle)
+  step_size = 0.1
+  max_steps = int(max_range / step_size)
+
+  for i in range(1, max_steps + 1):
+      current_x = x + i * step_size * dx
+      current_y = y + i * step_size * dy
+
+      # Converte para coordenadas do grid
+      grid_x = int((current_x - limits[0]) / resolution)
+      grid_y = int((current_y - limits[2]) / resolution)
+
+      # Verifica limites
+      if not (0 <= grid_x < grid_width and 0 <= grid_y < grid_height):
+          return max_range
+
+      # Verifica ocupação
+      if grid_map[grid_y, grid_x] > 0.5:
+          return i * step_size
+
+  return max_range
+
+
+@njit
+def p_hit(z, z_expected, sigma_hit, max_range):
+    """Probabilidade de hit - medição correta."""
+    if 0 <= z <= max_range:
+        return (1 / (np.sqrt(2*np.pi) * sigma_hit)) * np.exp(-0.5 * ((z - z_expected) / sigma_hit)**2)
+    return 0.0
+
+@njit
+def p_short(z, z_expected, lambda_short):
+    """Probabilidade de short - obstáculo mais próximo do que o esperado."""
+    if 0 <= z <= z_expected:
+        return lambda_short * np.exp(-lambda_short * z)
+    return 0.0
+
+@njit
+def p_max(z, max_range):
+    """Probabilidade de max - sensor retornando valor máximo."""
+    return 1.0 if abs(z - max_range) < 0.001 else 0.0
+
+@njit
+def p_rand(z, max_range):
+    """Probabilidade de rand - medição aleatória."""
+    return 1.0 / max_range if 0 <= z <= max_range else 0.0
+
+
+
+@njit
 def normalize_angle(theta):
     """
     Normaliza ângulo para o intervalo [-pi, pi].
@@ -24,9 +78,9 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    sigma_hit = 0.2         # maior tolerância → pesos mais "generosos"
-    z_hit = 0.95
-    z_rand = 0.01
+    sigma_hit = 0.4         # maior tolerância → pesos mais "generosos"
+    z_hit = 0.6
+    z_rand = 0.02
     max_range = 2
 
     for i in prange(N):
@@ -49,7 +103,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
 
                 if 0 <= mx < distance_map.shape[1] and 0 <= my < distance_map.shape[0]:
                     dist = distance_map[my, mx]
-                    p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
+                    p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))/np.sqrt(2*np.pi*sigma_hit**2)
                 else:
                     p_hit = 0.0
 
@@ -64,7 +118,57 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
 
     return scores
 
+@njit(parallel=True)
+def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_resolution, limits):
+    """
+    Compute particle likelihoods using beam model with raycasting.
+    """
+    N = particles.shape[0]
+    scores = np.zeros(N, dtype=np.float32)
 
+    sigma_hit = 0.03
+    z_hit = 0.8
+    z_rand = 0.1
+    max_range = 10.0
+
+    grid_height, grid_width = grid_map.shape
+
+    for i in prange(N):
+        x, y, theta = particles[i]
+        log_score = 0.0
+        valid_count = 0
+
+        for j in range(len(scan_ranges)):
+            r_meas = scan_ranges[j]
+            if np.isfinite(r_meas) and r_meas < max_range:
+                valid_count += 1
+
+                # Predicted range via raycasting
+                r_pred = raycast(
+                    np.array([x, y]),
+                    theta + angles[j],
+                    max_range,
+                    limits,
+                    map_resolution,
+                    grid_map,
+                    grid_width,
+                    grid_height
+                )
+
+
+                # Probability from Gaussian model
+                prob_hit = p_hit(r_meas, r_pred, sigma_hit, max_range)
+                prob_rand = p_rand(r_meas, max_range)
+                p = z_hit * prob_hit + z_rand * prob_rand
+                p = max(p, 1e-6)
+                log_score += np.log(p)
+
+        if valid_count > 0:
+            scores[i] = log_score / valid_count
+        else:
+            scores[i] = -np.inf
+
+    return scores
 
 @njit(parallel=True)
 def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
@@ -164,18 +268,19 @@ def compute_valid_mask(particles, occupancy_map, map_resolution, origin_x, origi
 
 
 @njit
-def low_variance_resample_numba(particles, weights,N):
-    
-    new_particles = np.zeros((N,3), dtype=np.float32)
+def low_variance_resample_numba(particles, weights, N):
+    weights = weights / np.sum(weights)  # ensure normalization
+    new_particles = np.zeros_like(particles)
     new_weights = np.full(N, 1.0 / N, dtype=np.float32)
 
-    r = np.random.uniform(0.0, 1.0 / N)
+    step = 1.0 / N
+    r = np.random.uniform(0.0, step)
     c = weights[0]
     i = 0
 
     for m in range(N):
-        U = r + m / N
-        while U > c and i < N - 1:  # Proteção contra índice fora do vetor
+        U = r + m * step
+        while U > c and i < N - 1:
             i += 1
             c += weights[i]
         new_particles[m] = particles[i]
@@ -183,26 +288,38 @@ def low_variance_resample_numba(particles, weights,N):
     return new_particles, new_weights
 
 
+
 @njit
 def generate_valid_particles(num_particles, min_coords, max_coords,
                              occupancy_map, map_resolution, origin_x, origin_y):
-    max_trials = num_particles * 10
+    max_trials = max(10 * num_particles, 100)  # always try at least 100 samples
+    particles = np.empty((num_particles, 3))
 
-    # Geração de partículas aleatórias
-    x = np.random.uniform(min_coords[0], max_coords[0], size=max_trials)
-    y = np.random.uniform(min_coords[1], max_coords[1], size=max_trials)
-    theta = np.random.uniform(-np.pi, np.pi, size=max_trials)
+    count = 0
+    trials = 0
 
-    all_particles = np.column_stack((x, y, theta))
-    valid_mask = compute_valid_mask(all_particles, occupancy_map, map_resolution, origin_x, origin_y)
+    while count < num_particles and trials < max_trials:
+        # generate one candidate at a time (works well for num_particles = 1)
+        x = np.random.uniform(min_coords[0], max_coords[0])
+        y = np.random.uniform(min_coords[1], max_coords[1])
+        theta = np.random.uniform(-np.pi, np.pi)
 
-    valid_particles = all_particles[valid_mask]
+        # compute map indices
+        mx = int((x - origin_x) / map_resolution)
+        my = int((y - origin_y) / map_resolution)
 
-    if valid_particles.shape[0] >= num_particles:
-        return valid_particles[:num_particles]
-    else:
-        return valid_particles  # menos do que o pedido, mas o que deu
-    
+        # check if inside map and not in obstacle
+        if 0 <= mx < occupancy_map.shape[1] and 0 <= my < occupancy_map.shape[0]:
+            if occupancy_map[my, mx] == 0:  # free cell
+                particles[count, 0] = x
+                particles[count, 1] = y
+                particles[count, 2] = theta
+                count += 1
+
+        trials += 1
+
+    # if not enough valid samples, truncate
+    return particles[:count]
 
 @njit(parallel=True)
 def parallel_resample_simple(particles, weights, N):

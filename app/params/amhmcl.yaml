@@ -1,0 +1,20 @@
+localization_mode: "AMCL"
+
+init_particles: 2000
+
+alpha1: 0.002
+alpha2: 0.002
+alpha3: 0.001
+alpha4: 0.001
+
+kld_epsilon: 0.01
+kld_z: 0.99
+min_particles: 100
+max_particles: 5000
+
+alpha_slow: 0.05
+alpha_fast: 0.5
+
+initialized: False
+
+max_range: 2.0

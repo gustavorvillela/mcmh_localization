@@ -10,7 +10,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast
 
 class AMCMHLocalizer:
     def __init__(self):
@@ -30,6 +30,8 @@ class AMCMHLocalizer:
                                 rospy.get_param('alpha3', 0.2),
                                 rospy.get_param('alpha4', 0.2)
                             ], dtype=np.float32) #do not touch
+        self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # taxa de aprendizado lenta
+        self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # taxa de aprendizado rápida
 
         # Parâmetros KLD
         self.kld_epsilon = rospy.get_param('kld_epsilon', 0.05)
@@ -41,32 +43,37 @@ class AMCMHLocalizer:
 
         self.initial_pose = None  # Armazenará a pose inicial [x, y, theta]
         self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Covariância inicial (x, y em metros, theta em rad)
-        self.initialized = False  # Flag para controle
+        self.initialized = rospy.get_param('initialized', False)  # Flag para controle
 
         self.timeout = 10
-        rospy.loginfo("Aguardando pose inicial (máx. %.1fs)..." % self.timeout)
 
-        # Primeiro verifica se o tópico existe
-        try:
-            rospy.wait_for_message('/initial_pose', PoseWithCovarianceStamped, timeout=10.0)
-        except rospy.ROSException:
-            rospy.logwarn("Tópico /initial_pose não encontrado. Verifique se o publisher está ativo.")
-            pass
+        if self.initialized == True:
+            rospy.loginfo("Aguardando pose inicial (máx. %.1fs)..." % self.timeout)
+
+            # Primeiro verifica se o tópico existe
+            try:
+                rospy.wait_for_message('/initial_pose', PoseWithCovarianceStamped, timeout=10.0)
+            except rospy.ROSException:
+                rospy.logwarn("Tópico /initial_pose não encontrado. Verifique se o publisher está ativo.")
+                pass
+
+            
+
+            try:
+                msg = rospy.wait_for_message('/initial_pose', PoseWithCovarianceStamped, timeout=10.0)
+                self.initial_pose_callback(msg)
+            except:
+                pass
         
-
-        try:
-            msg = rospy.wait_for_message('/initial_pose', PoseWithCovarianceStamped, timeout=10.0)
-            self.initial_pose_callback(msg)
-        except:
-            pass
+        else:
+            rospy.loginfo("Inicializando partículas uniformemente no mapa")
 
         #AMCL
         self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
         self.max_particles = self.max_particles = rospy.get_param('max_particles', 500)
-        self.w_slow = 0.0
-        self.w_fast = 0.0
-        self.alpha_slow = 0.001  # taxa de aprendizado lenta
-        self.alpha_fast = 0.1   # taxa de aprendizado rápida
+        self.w_slow = 1e-3
+        self.w_fast = 1e-3
+ 
         # Carrega o mapa
         
         
@@ -111,6 +118,7 @@ class AMCMHLocalizer:
         self.origin_np = np.array([self.origin.x, self.origin.y])
 
         self.occupancy_map = np.where(self.map_data == 0, 0, 100)
+        #self.occupancy_map = np.where(self.occupancy_map > 50, 1, 0).astype(np.uint8)
         
         # Processa células livres
         free_cells = np.where(self.map_data == 0)
@@ -121,6 +129,18 @@ class AMCMHLocalizer:
         
         #self.kdtree = KDTree(self.free_cells_coords)
         self.distance_map = distance_transform_edt(self.map_data == 0) * self.resolution
+
+        origin_x = map_msg.info.origin.position.x
+        origin_y = map_msg.info.origin.position.y
+        width = map_msg.info.width
+        height = map_msg.info.height
+
+        self.limits = np.array([
+            origin_x,
+            origin_x + width * self.resolution,
+            origin_y,
+            origin_y + height * self.resolution
+        ])
 
     def initialize_particles(self):
 
@@ -259,7 +279,7 @@ class AMCMHLocalizer:
 
         else:
 
-            self.resample_simple()
+            self.resample_lvr()
 
         self.publish_particles()
 
@@ -359,21 +379,32 @@ class AMCMHLocalizer:
         p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
         N = self.num_particles
-        N_random = int(p_random * N)
-        N_resampled = N - N_random
+        resampled_particles = np.zeros_like(self.particles)
 
-        resampled_particles, _ = low_variance_resample_numba(self.particles,self.weights,N_resampled)
+        resampled_index, _ = low_variance_resample_numba(np.arange(N), self.weights, N)
+        resampled_index = resampled_index.astype(np.int64)
 
-        random_particles = generate_valid_particles(N_random,self.min_coords,self.max_coords,self.occupancy_map,
+        for i in range(N):
+            if np.random.rand() < p_random:
+                resampled_particles[i,:] = generate_valid_particles(1,self.min_coords,self.max_coords,self.occupancy_map,
                                                     self.resolution,self.origin_np[0],self.origin_np[1])
+
+            else:
+                resampled_particles[i,:] = self.particles[resampled_index[i],:]
         
-        self.particles = np.vstack((resampled_particles,random_particles))
+        self.particles = resampled_particles.copy()
         self.weights   = np.full(N,1/N)
 
 
     def resample_simple(self):
 
         resampled_particles = parallel_resample_simple(self.particles,self.weights,N=self.num_particles)
+
+        self.particles = resampled_particles
+
+    def resample_lvr(self): #not fixed
+
+        resampled_particles, _ = low_variance_resample_numba(self.particles,self.weights,N=self.num_particles)
 
         self.particles = resampled_particles
 
