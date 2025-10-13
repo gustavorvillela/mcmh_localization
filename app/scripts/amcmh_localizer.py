@@ -503,32 +503,43 @@ class AMCMHLocalizer:
 
     def publish_particles(self):
         marker_array = MarkerArray()
-        weights = self.weights
+
+        clear_marker = Marker()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        weights = self.weights[:len(self.particles)]
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
 
         cos_half_theta = np.cos(self.particles[:,2] / 2.0)
         sin_half_theta = np.sin(self.particles[:,2] / 2.0)
-        
-        for i, p in enumerate(self.particles):
+        marker_id =0
+        for p, w in zip(self.particles, norm_weights):
             if not self.is_valid_position(p[0], p[1]):
                 continue
                 
             marker = Marker()
             marker.header.frame_id = "map"
-            marker.id = i
+            marker.header.stamp = rospy.Time.now()
+            marker.ns = "particles"
+            marker.id = marker_id
+            marker_id += 1
             marker.type = Marker.ARROW
             marker.action = Marker.ADD
             marker.scale.x = 0.1
             marker.scale.y = 0.02
             marker.scale.z = 0.02
             marker.color.a = 1.0
-            marker.color.r = norm_weights[i]
+            marker.color.r = w
             marker.color.g = 0.0
-            marker.color.b = 1 - norm_weights[i]
+            marker.color.b = 1 - w
             marker.pose.position.x = p[0]
             marker.pose.position.y = p[1]
-            marker.pose.orientation.z = sin_half_theta[i]
-            marker.pose.orientation.w = cos_half_theta[i]
+            theta = p[2]
+            z = np.sin(theta / 2.0)
+            marker.pose.orientation.z = z
+            marker.pose.orientation.w = np.cos(theta / 2.0)
+            
             
             marker_array.markers.append(marker)
         
@@ -538,11 +549,13 @@ class AMCMHLocalizer:
     def publish_estimate(self):
 
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
+        cos_mean = np.sum(np.cos(self.particles[:,2]) * self.weights)
+        sin_mean = np.sum(np.sin(self.particles[:,2]) * self.weights)
+        mean_theta = np.arctan2(sin_mean, cos_mean)
         diffs = self.particles.copy()
         diffs[:, 0] -= mean_pose[0]
         diffs[:, 1] -= mean_pose[1]
-        diffs[:, 2] = normalize_angle_array(self.particles[:, 2], mean_pose[2])
-        normalized_theta = normalize_angle(mean_pose[2])
+        diffs[:, 2] = normalize_angle_array(self.particles[:, 2], mean_theta)
         if len(self.particles) < 2:
             rospy.logwarn("Not enough particles to compute covariance")
             return
@@ -552,8 +565,8 @@ class AMCMHLocalizer:
         pose.header.frame_id = "map"
         pose.pose.pose.position.x = mean_pose[0]
         pose.pose.pose.position.y = mean_pose[1]
-        pose.pose.pose.orientation.z = np.sin(normalized_theta / 2.0)
-        pose.pose.pose.orientation.w = np.cos(normalized_theta / 2.0)
+        pose.pose.pose.orientation.z = np.sin(mean_theta / 2.0)
+        pose.pose.pose.orientation.w = np.cos(mean_theta / 2.0)
 
         # Preenche a matriz de covariância (6x6 flatten)
         # Usamos apenas as dimensões x, y, theta → [0,0], [1,1], [5,5]

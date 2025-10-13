@@ -40,38 +40,48 @@ class PoseBroadcaster:
         except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
             return None
         
-    def compute_map_to_odom_tf(self,estimated_pose, odom_to_base):
-
-        # 1. Obter T_map_base (pose estimada)
-        T_map_base = tft.quaternion_matrix([
+    def compute_map_to_odom_tf(self, estimated_pose, odom_to_base):
+        # 1. T_map_base (from estimated pose)
+        q_map_base = np.array([
             estimated_pose.pose.orientation.x,
             estimated_pose.pose.orientation.y,
             estimated_pose.pose.orientation.z,
             estimated_pose.pose.orientation.w
         ])
+        q_map_base /= np.linalg.norm(q_map_base)
+
+        T_map_base = tft.quaternion_matrix(q_map_base)
         T_map_base[0:3, 3] = [
             estimated_pose.pose.position.x,
             estimated_pose.pose.position.y,
             0.0
         ]
 
-        # 2. Obter T_odom_base (da odometria)
-        T_odom_base = tft.quaternion_matrix([
+        # 2. T_odom_base (from odom)
+        q_odom_base = np.array([
             odom_to_base.transform.rotation.x,
             odom_to_base.transform.rotation.y,
             odom_to_base.transform.rotation.z,
             odom_to_base.transform.rotation.w
         ])
+        q_odom_base /= np.linalg.norm(q_odom_base)
+
+        T_odom_base = tft.quaternion_matrix(q_odom_base)
         T_odom_base[0:3, 3] = [
             odom_to_base.transform.translation.x,
             odom_to_base.transform.translation.y,
             0.0
         ]
 
-        # T_map_odom = T_map_base * inv(T_odom_base)
+        # 3. Compute T_map_odom
         T_map_odom = np.dot(T_map_base, np.linalg.inv(T_odom_base))
         trans = tft.translation_from_matrix(T_map_odom)
         rot = tft.quaternion_from_matrix(T_map_odom)
+
+        # Normalize quaternion and force w positive (to avoid flipping)
+        rot /= np.linalg.norm(rot)
+        if rot[3] < 0:
+            rot = -rot
 
         return trans, rot
     

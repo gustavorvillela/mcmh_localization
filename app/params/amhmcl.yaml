@@ -1,9 +1,9 @@
-localization_mode: "AMCL"
+localization_mode: "MHAMCL"
 
 init_particles: 1000
 
-alpha1: 0.005
-alpha2: 0.01
+alpha1: 0.007
+alpha2: 0.015
 alpha3: 0.001
 alpha4: 0.002
 
@@ -15,8 +15,8 @@ kld_delta: 0.99
 min_particles: 100
 max_particles: 5000
 
-alpha_slow: 0.005
-alpha_fast: 0.1
+alpha_slow: 0.0005
+alpha_fast: 0.05
 
 initialized: False
 
