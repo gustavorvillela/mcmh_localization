@@ -1,19 +1,22 @@
 localization_mode: "AMCL"
 
-init_particles: 2000
+init_particles: 1000
 
-alpha1: 0.002
-alpha2: 0.002
+alpha1: 0.005
+alpha2: 0.01
 alpha3: 0.001
-alpha4: 0.001
+alpha4: 0.002
 
-kld_epsilon: 0.01
-kld_z: 0.99
+kld_epsilon: 0.03
+kld_z: 2
+kld_bin_size_xy: 0.2
+kld_bin_size_theta: 0.1745  # 10 graus em radianos
+kld_delta: 0.99
 min_particles: 100
 max_particles: 5000
 
-alpha_slow: 0.05
-alpha_fast: 0.5
+alpha_slow: 0.005
+alpha_fast: 0.1
 
 initialized: False
 

@@ -1,7 +1,7 @@
 <launch>
 
   <!-- Carregar mapa -->
-  <arg name="map_file" default="$(find mcmh_localization)/maps/map.yaml"/>
+  <arg name="map_file" default="$(find mcmh_localization)/maps/map_world.yaml"/>
   <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
 
 
