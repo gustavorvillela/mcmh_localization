@@ -28,6 +28,10 @@ def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, gri
 
   return max_range
 
+@njit
+def gaussian_prob(diff, sigma):
+    return np.exp(-0.5 * (diff / sigma)**2)
+
 
 @njit
 def p_hit(z, z_expected, sigma_hit, max_range):
@@ -173,6 +177,11 @@ def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_re
 
     return scores
 
+
+#=======================================================================
+# Metropolis-Hastings
+#=======================================================================
+
 @njit(parallel=True)
 def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     N = particles.shape[0]
@@ -190,8 +199,85 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
 
     return new_particles, new_weights
 
+@njit(parallel=True)
+def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights, trans_forward, trans_backward):
+    
+    N = particles.shape[0]
+    new_particles = particles.copy()
+    new_weights = old_weights.copy()
 
 
+
+    for i in prange(N):
+        p_old = old_weights[i]
+        p_new = likelihoods[i]
+        trans_f = trans_forward[i]
+        trans_b = trans_backward[i]
+
+        num = p_new * trans_b
+        den = p_old * trans_f
+        alpha = min(1.0, num / den) if den > 0 else 1.0
+        
+        if np.random.rand() < alpha:
+            new_particles[i] = proposed_particles[i]
+            new_weights[i] = p_new
+
+
+    return new_particles, new_weights
+
+#=======================================================================
+# Funções de motion model
+#=======================================================================
+
+@njit(parallel=True)
+def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha):
+    """
+    Compute p(x_t | x_{t-1}, u_t) for all particles in parallel using odometry motion model.
+
+    Args:
+        particles_prev: (N, 3) previous particle poses [x, y, theta]
+        particles_curr: (N, 3) current particle poses [x, y, theta]
+        delta: tuple (rot1, trans, rot2) - observed odometry motion
+        alpha: tuple (a1, a2, a3, a4) - motion noise parameters
+
+    Returns:
+        probs: (N,) array of motion model probabilities (normalized)
+    """
+    rot1, trans, rot2 = delta
+    a1, a2, a3, a4 = alpha
+    N = particles_prev.shape[0]
+    probs = np.empty(N, dtype=np.float64)
+
+    for i in prange(N):
+        x_prev, y_prev, theta_prev = particles_prev[i]
+        x_curr, y_curr, theta_curr = particles_curr[i]
+
+        # Estimated motion from the particle
+        dx = x_curr - x_prev
+        dy = y_curr - y_prev
+
+        trans_hat = np.sqrt(dx*dx + dy*dy)
+        rot1_hat = normalize_angle(np.arctan2(dy, dx) - theta_prev)
+        rot2_hat = normalize_angle(theta_curr - theta_prev - rot1_hat)
+
+        # Noise parameters
+        sigma_rot1 = a1 * abs(rot1) + a2 * abs(trans)
+        sigma_trans = a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2))
+        sigma_rot2 = a1 * abs(rot2) + a2 * abs(trans)
+
+        # Gaussian motion likelihoods
+        p1 = gaussian_prob(normalize_angle(rot1 - rot1_hat), sigma_rot1)
+        p2 = gaussian_prob(trans - trans_hat, sigma_trans)
+        p3 = gaussian_prob(normalize_angle(rot2 - rot2_hat), sigma_rot2)
+
+        probs[i] = p1 * p2 * p3
+
+    # Normalize probabilities
+    s = np.sum(probs)
+    if s > 0:
+        probs /= s
+
+    return probs
 
 @njit(parallel=True)
 def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolution, origin_x, origin_y, width, height):
@@ -226,6 +312,9 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
 
     return new_particles
 
+#=======================================================================
+# Funções de resample e validação
+#=======================================================================
 
 @njit
 def compute_valid_indices(particles, map_data, map_resolution, origin_x, origin_y,width, height):
