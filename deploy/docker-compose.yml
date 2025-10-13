@@ -11,8 +11,9 @@ services:
       - ../app:/root/catkin_ws/src/mcmh_localization   # mount your source code
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ~/.gazebo/gui.ini:/root/.gazebo/gui.ini:ro
+      - ~/.gazebo/models:/root/.gazebo/models:rw
       - /opt/ros/noetic/share/turtlebot3_description:/opt/ros/noetic/share/turtlebot3_description:ro
-      - ../../turtlebot3_diff:/root/catkin_ws/src/turtlebot3_diff
+      - ../../turtlebot3_diff:/root/catkin_ws/src/turtlebot3_diff:rw
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all

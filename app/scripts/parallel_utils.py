@@ -74,21 +74,21 @@ def normalize_angle_array(angles, mean_angle):
     return result
 
 @njit(parallel=True)
-def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolution, map_origin):
+def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolution, map_origin, width, height):
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    sigma_hit = 0.4         # maior tolerância → pesos mais "generosos"
-    z_hit = 0.6
-    z_rand = 0.02
-    max_range = 2
-
+    sigma_hit = 0.35        # maior tolerância → pesos mais "generosos"
+    z_hit = 0.9
+    z_rand = 0.1
+    max_range = 10
+    step = 1
     for i in prange(N):
         x, y, theta = particles[i]
         log_score = 0.0
         valid_count = 0
 
-        for j in range(len(scan_ranges)):
+        for j in range(0,len(scan_ranges),step):
             #if j % 10 != 0:  # downsample a cada 10 feixes
             #    continue
 
@@ -101,20 +101,23 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolu
                 mx = int((lx - map_origin[0]) / map_resolution)
                 my = int((ly - map_origin[1]) / map_resolution)
 
-                if 0 <= mx < distance_map.shape[1] and 0 <= my < distance_map.shape[0]:
-                    dist = distance_map[my, mx]
+                if mx < 0 or mx >= width or my < 0 or my >= height:
+                    continue   # skip this beam
+                index = my * width + mx
+                dist = distance_map[index]
+                if dist <= max_range:
                     p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))/np.sqrt(2*np.pi*sigma_hit**2)
                 else:
                     p_hit = 0.0
-
-                p = z_hit * p_hit + z_rand * (1.0 / max_range)
+                p_rand = 1.0 / max_range if 0 <= r <= max_range else 0.0
+                p = z_hit * p_hit + z_rand * p_rand
                 p = max(p, 1e-6)  # evita log(0)
                 log_score += np.log(p)
 
         if valid_count > 0:
-            scores[i] = log_score / (valid_count* sigma_hit**2)
+            scores[i] = log_score/valid_count 
         else:
-            scores[i] = -np.inf  # penaliza partículas cegas
+            scores[i] = -50  # penaliza partículas cegas
 
     return scores
 
@@ -126,7 +129,7 @@ def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_re
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    sigma_hit = 0.03
+    sigma_hit = 0.05
     z_hit = 0.8
     z_rand = 0.1
     max_range = 10.0
@@ -191,7 +194,7 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
 
 
 @njit(parallel=True)
-def apply_motion_model_parallel(particles, delta, alpha, occupancy_map, map_resolution, origin_x, origin_y):
+def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolution, origin_x, origin_y, width, height):
     rot1, trans, rot2 = delta
     a1, a2, a3, a4 = alpha
     num_particles = particles.shape[0]
@@ -207,12 +210,13 @@ def apply_motion_model_parallel(particles, delta, alpha, occupancy_map, map_reso
             t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)))
             r2_hat = rot2 + np.random.normal(0, a1 * abs(rot2) + a2 * abs(trans))
 
+
             x, y, theta = particles[i]
             x_new = x + t_hat * np.cos(theta + r1_hat)
             y_new = y + t_hat * np.sin(theta + r1_hat)
             theta_new = normalize_angle(theta + r1_hat + r2_hat)
 
-            if is_valid_position(x_new, y_new, occupancy_map, map_resolution, origin_x, origin_y):
+            if is_valid_position(x_new, y_new, map_data, width, height, map_resolution, origin_x, origin_y):
                 new_particles[i] = [x_new, y_new, theta_new]
                 success = True
                 break
@@ -224,44 +228,47 @@ def apply_motion_model_parallel(particles, delta, alpha, occupancy_map, map_reso
 
 
 @njit
-def compute_valid_indices(particles, occupancy_map, map_resolution, origin_x, origin_y):
+def compute_valid_indices(particles, map_data, map_resolution, origin_x, origin_y,width, height):
     num_particles = particles.shape[0]
     valid_indices = []
+
 
     for i in range(num_particles):
         x, y = particles[i, 0], particles[i, 1]
         mx = int((x - origin_x) / map_resolution)
         my = int((y - origin_y) / map_resolution)
 
-        if 0 <= mx < occupancy_map.shape[1] and 0 <= my < occupancy_map.shape[0]:
-            if occupancy_map[my, mx] <= 10:  # livre
+        if 0 <= mx < width and 0 <= my < height:
+            index = my * width + mx
+
+            if map_data[index] <= 10:  # livre
                 valid_indices.append(i)
 
     return np.array(valid_indices, dtype=np.int32)
 
 @njit
-def is_valid_position(x, y, occupancy_map, map_resolution, origin_x, origin_y):
+def is_valid_position(x, y, map_data, width, height, map_resolution, origin_x, origin_y):
     mx = int((x - origin_x) / map_resolution)
     my = int((y - origin_y) / map_resolution)
 
-    if 0 <= mx < occupancy_map.shape[1] and 0 <= my < occupancy_map.shape[0]:
-        return occupancy_map[my, mx] == 0
+    if 0 <= mx < width and 0 <= my < height:
+        index = my * width + mx
+        return map_data[index] == 0
     return False
 
 @njit(parallel=True)
-def compute_valid_mask(particles, occupancy_map, map_resolution, origin_x, origin_y):
+def compute_valid_mask(particles, map_data, width, height, resolution, origin_x, origin_y):
     num_particles = particles.shape[0]
     valid_mask = np.zeros(num_particles, dtype=np.bool_)
 
-    height, width = occupancy_map.shape
-
     for i in prange(num_particles):
         x, y = particles[i, 0], particles[i, 1]
-        mx = int(np.floor((x - origin_x) / map_resolution))
-        my = int(np.floor((y - origin_y) / map_resolution))
+        map_x = int((x - origin_x) / resolution)
+        map_y = int((y - origin_y) / resolution)
 
-        if 0 <= mx < width and 0 <= my < height:
-            if occupancy_map[my, mx] <= 10:  # ou 50, dependendo do seu uso
+        if 0 <= map_x < width and 0 <= map_y < height:
+            index = map_y * width + map_x
+            if map_data[index] == 0:  
                 valid_mask[i] = True
 
     return valid_mask
@@ -290,36 +297,21 @@ def low_variance_resample_numba(particles, weights, N):
 
 
 @njit
-def generate_valid_particles(num_particles, min_coords, max_coords,
-                             occupancy_map, map_resolution, origin_x, origin_y):
-    max_trials = max(10 * num_particles, 100)  # always try at least 100 samples
-    particles = np.empty((num_particles, 3))
+def generate_valid_particles(num_particles,
+                             map_data, map_resolution, origin_x, origin_y,width,height):
+    max_trials = max(50 * num_particles, 500)
+    x = np.random.uniform(origin_x, origin_x + width * map_resolution, size=max_trials)
+    y = np.random.uniform(origin_y, origin_y + height * map_resolution, size=max_trials)
+    theta = np.random.uniform(-np.pi, np.pi, size=max_trials)
+    
+    all_particles = np.column_stack((x, y, theta))
+    valid_mask = compute_valid_mask(all_particles, map_data, width, height, map_resolution, origin_x, origin_y)
+    valid_particles = all_particles[valid_mask]
 
-    count = 0
-    trials = 0
-
-    while count < num_particles and trials < max_trials:
-        # generate one candidate at a time (works well for num_particles = 1)
-        x = np.random.uniform(min_coords[0], max_coords[0])
-        y = np.random.uniform(min_coords[1], max_coords[1])
-        theta = np.random.uniform(-np.pi, np.pi)
-
-        # compute map indices
-        mx = int((x - origin_x) / map_resolution)
-        my = int((y - origin_y) / map_resolution)
-
-        # check if inside map and not in obstacle
-        if 0 <= mx < occupancy_map.shape[1] and 0 <= my < occupancy_map.shape[0]:
-            if occupancy_map[my, mx] == 0:  # free cell
-                particles[count, 0] = x
-                particles[count, 1] = y
-                particles[count, 2] = theta
-                count += 1
-
-        trials += 1
-
-    # if not enough valid samples, truncate
-    return particles[:count]
+    if valid_particles.shape[0] >= num_particles:
+        return valid_particles[:num_particles]
+    else:
+        return valid_particles
 
 @njit(parallel=True)
 def parallel_resample_simple(particles, weights, N):

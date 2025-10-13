@@ -33,13 +33,15 @@ class AMCMHLocalizer:
         self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # taxa de aprendizado lenta
         self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # taxa de aprendizado rápida
 
+        self.dt = 0.02 #intervalo de tempo do scan
+
         # Parâmetros KLD
-        self.kld_epsilon = rospy.get_param('kld_epsilon', 0.05)
-        self.kld_delta = 0.01
-        self.kld_bin_size_xy = 0.1  # metros
-        self.kld_bin_size_theta = np.deg2rad(10)  # radianos
+        self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
+        self.kld_delta = rospy.get_param('kld_delta', 0.99)
+        self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # metros
+        self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radianos
         self.kld_n_max = self.num_particles
-        self.kld_z = rospy.get_param('kld_z', 0.99)
+        self.kld_z = rospy.get_param('kld_z', 2)
 
         self.initial_pose = None  # Armazenará a pose inicial [x, y, theta]
         self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Covariância inicial (x, y em metros, theta em rad)
@@ -70,9 +72,9 @@ class AMCMHLocalizer:
 
         #AMCL
         self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
-        self.max_particles = self.max_particles = rospy.get_param('max_particles', 500)
+        self.max_particles = self.max_particles = rospy.get_param('max_particles', 5000)
         self.w_slow = 1e-3
-        self.w_fast = 1e-3
+        self.w_fast = 1e-6
  
         # Carrega o mapa
         
@@ -110,42 +112,61 @@ class AMCMHLocalizer:
     #======================================================================
 
     def load_map(self):
+        # wait for /map once
         map_msg = rospy.wait_for_message("/map", OccupancyGrid)
-        
-        self.map_data = np.array(map_msg.data).reshape((map_msg.info.height, map_msg.info.width))
-        self.resolution = map_msg.info.resolution
-        self.origin = map_msg.info.origin.position
-        self.origin_np = np.array([self.origin.x, self.origin.y])
 
-        self.occupancy_map = np.where(self.map_data == 0, 0, 100)
-        #self.occupancy_map = np.where(self.occupancy_map > 50, 1, 0).astype(np.uint8)
-        
-        # Processa células livres
-        free_cells = np.where(self.map_data == 0)
-        self.free_cells_coords = np.column_stack((
-            free_cells[1] * self.resolution + self.origin.x,
-            (self.map_data.shape[0] - free_cells[0] - 1) * self.resolution + self.origin.y
-        ))
-        
-        #self.kdtree = KDTree(self.free_cells_coords)
-        self.distance_map = distance_transform_edt(self.map_data == 0) * self.resolution
-
-        origin_x = map_msg.info.origin.position.x
-        origin_y = map_msg.info.origin.position.y
+        # basic params
         width = map_msg.info.width
         height = map_msg.info.height
+        resolution = map_msg.info.resolution
+        origin_x = map_msg.info.origin.position.x
+        origin_y = map_msg.info.origin.position.y
 
+        # 2D map in row-major C order (shape = (height, width))
+        map_2d = np.array(map_msg.data, dtype=np.int8).reshape((height, width))
+
+        # --- IMPORTANT: do NOT flip here. Keep map_2d exactly as ROS provides ---
+        # If you previously flipped, revert that. We will use world->grid index
+        # formula (mx,my) -> index = my * width + mx consistent with this layout.
+
+        # store members
+        self.width = width
+        self.height = height
+        self.resolution = resolution
+        self.origin = map_msg.info.origin.position
+        self.origin_np = np.array([origin_x, origin_y])
+
+        # flattened 1D map for fast indexing (same order as map_msg.data)
+        self.map_data = map_2d.flatten()       # dtype int8
+
+        # occupancy_map (binary: 0 free, 1 occupied) for distance transform
+        occupancy_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0
+
+        rospy.loginfo("Gerando mapa de distância...")
+        dist_2d = distance_transform_edt(occupancy_binary == 0) * resolution
+        self.distance_map = dist_2d.flatten().astype(np.float32)
+        rospy.loginfo("Mapa de distância gerado.")
+
+        # free cell coordinates in world frame (consistent with map_2d ordering)
+        free_rows, free_cols = np.where(map_2d == 0)  # row=y_index, col=x_index
+        # world coords of cell centers
+        xs = origin_x + (free_cols + 0.5) * resolution
+        ys = origin_y + (free_rows + 0.5) * resolution
+        self.free_cells_coords = np.column_stack((xs, ys))
+
+        # Save limits
         self.limits = np.array([
             origin_x,
-            origin_x + width * self.resolution,
+            origin_x + width * resolution,
             origin_y,
-            origin_y + height * self.resolution
+            origin_y + height * resolution
         ])
 
-    def initialize_particles(self):
+        # Keep typed references for Numba calls (1D arrays)
+        self.map_data = self.map_data.astype(np.int8)
+        self.distance_map = self.distance_map.astype(np.float32)
 
-        self.min_coords = np.min(self.free_cells_coords, axis=0)
-        self.max_coords = np.max(self.free_cells_coords, axis=0)
+    def initialize_particles(self):
 
         if self.initialized == True:
             rospy.loginfo("Inicializando partículas com distribuição gaussiana")
@@ -154,10 +175,14 @@ class AMCMHLocalizer:
             
         else:
             rospy.loginfo("Inicializando partículas uniformemente no mapa")
-            final_particles = generate_valid_particles(self.num_particles, self.min_coords, self.max_coords,
-                                             self.occupancy_map, self.resolution, 
-                                             self.origin_np[0], self.origin_np[1])
+            final_particles = generate_valid_particles(self.num_particles,
+                                             self.map_data, self.resolution,
+                                             self.origin_np[0], self.origin_np[1], self.width, self.height)
 
+        print(f"[DEBUG] Generated {final_particles.shape[0]} valid particles")
+
+        if final_particles.shape[0] == 0:
+            rospy.logerr("No valid particles generated! Check map indexing and limits.")
         
         return final_particles
     
@@ -204,9 +229,10 @@ class AMCMHLocalizer:
 
     def is_valid_position(self, x, y):
         mx, my = self.world_to_map(x, y)
-        if not (0 <= mx < self.map_data.shape[1] and 0 <= my < self.map_data.shape[0]):
+        if not (0 <= mx < self.width and 0 <= my < self.height):
             return False
-        return self.map_data[my, mx] == 0
+        index = my * self.width + mx
+        return self.map_data[index] == 0
 
     #======================================================================
     # Weights
@@ -217,29 +243,37 @@ class AMCMHLocalizer:
 
         scores_pre = compute_likelihoods(
         self.scan_ranges, self.angles, self.particles_prev,
-        self.distance_map, self.resolution, self.origin_np
+        self.distance_map, self.resolution, self.origin_np,
+        self.width, self.height
         )
 
         weights_pre = self.convert_scores(scores_pre)
 
         scores_post = compute_likelihoods(
         self.scan_ranges, self.angles, self.particles,
-        self.distance_map, self.resolution, self.origin_np
+        self.distance_map, self.resolution, self.origin_np,
+        self.width, self.height
         )
 
         weights_post = self.convert_scores(scores_post)
+
+        #rospy.loginfo(f"Mean weights: {np.mean(weights_pre):.6f}")
 
         return weights_pre, weights_post
     
 
     def update_acml_weights(self,weights):
 
+        self.weights = weights/np.sum(weights)
+
+        alpha_slow_eff = 1 - (1 - self.alpha_slow) ** self.dt
+        alpha_fast_eff = 1 - (1 - self.alpha_fast) ** self.dt 
+
         # Atualiza w_slow e w_fast
-        w_avg = np.mean(weights)  # média dos pesos normalizados
+        w_avg = np.mean(self.weights)  # média dos pesos normalizados
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
-        
-        self.weights = weights/np.sum(weights)
+
 
     #======================================================================
     # LiDAR
@@ -249,10 +283,16 @@ class AMCMHLocalizer:
     def lidar_callback(self, msg):
 
         self.update_scans(msg)
+        #self.particles = generate_valid_particles(self.num_particles,
+        #                                     self.map_data, self.resolution,
+        #                                     self.origin_np[0], self.origin_np[1], self.width, self.height)
 
         #Corretion step
+        
+        #rospy.loginfo("Atualizando pesos das partículas")
+        
         weights_pre, weights_post = self.update_weights()
-
+        
         if self.use_mh:
 
             weights = self.update_particles_mh(weights_pre, weights_post)
@@ -269,18 +309,21 @@ class AMCMHLocalizer:
         else:
 
             self.weights = weights
-        
-        #Publish and resampling
-        self.publish_estimate()
 
+            
+        #Publish and resampling
+        #rospy.loginfo("Publicando pose estimada")
+        self.publish_estimate()
+        
         if self.use_adaptive:
 
-            self.resample_amcl_lvr()
+            self.resample_amcl_kld()
 
         else:
 
             self.resample_lvr()
-
+        
+        #rospy.loginfo("Publicando partículas")
         self.publish_particles()
 
 
@@ -317,7 +360,8 @@ class AMCMHLocalizer:
 
 
     def odom_callback(self, msg):
-        
+
+        #rospy.loginfo("Movendo partículas com odometria")
         self.move_particles(msg)
 
     def move_particles(self,msg):
@@ -333,8 +377,11 @@ class AMCMHLocalizer:
             delta = self.compute_motion(self.last_odom, current_odom)
             
             self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha,
-                                                              self.occupancy_map, self.resolution,
-                                                              self.origin_np[0], self.origin_np[1])
+                                                              self.map_data, self.resolution,
+                                                              self.origin_np[0], self.origin_np[1],
+                                                              self.width,self.height)
+            
+            #rospy.loginfo(f"Partículas movidas: {len(self.particles_prop)}\n")
             
             self.particles_prev = self.particles.copy()
             self.particles = self.particles_prop.copy()
@@ -350,6 +397,8 @@ class AMCMHLocalizer:
         rot1 = np.arctan2(dy, dx) - odom1[2]
         trans = np.hypot(dx, dy)
         rot2 = dtheta - rot1
+
+        
 
         return rot1, trans, rot2
 
@@ -368,8 +417,8 @@ class AMCMHLocalizer:
 
         resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
 
-        random_particles = generate_valid_particles(N_random,self.min_coords,self.max_coords,self.occupancy_map,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1])
+        random_particles = generate_valid_particles(N_random,self.map_data,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
         
         self.particles = np.vstack((resampled_particles,random_particles))
         self.weights   = np.full(N,1/N)
@@ -386,8 +435,8 @@ class AMCMHLocalizer:
 
         for i in range(N):
             if np.random.rand() < p_random:
-                resampled_particles[i,:] = generate_valid_particles(1,self.min_coords,self.max_coords,self.occupancy_map,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1])
+                resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
             else:
                 resampled_particles[i,:] = self.particles[resampled_index[i],:]
@@ -425,15 +474,16 @@ class AMCMHLocalizer:
             self.kld_bin_size_theta,
             self.kld_epsilon,
             self.kld_z,
-            self.max_particles,
+            N_resampled,
             self.min_particles
         )
 
 
-        random_particles = generate_valid_particles(N_random,self.min_coords,self.max_coords,self.occupancy_map,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1])
+        random_particles = generate_valid_particles(N_random,self.map_data,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
         # Junta
+        self.num_particles = len(self.particles)
         self.particles = np.vstack((random_particles, resampled_particles))
         self.weights   = np.full(len(self.particles), 1.0 / len(self.particles))
 
@@ -442,7 +492,7 @@ class AMCMHLocalizer:
             rospy.loginfo(f"Particle update!\n From: {N}  To: {len(self.particles)}")
         
 
-        self.num_particles = len(self.particles)
+        
 
 
 
@@ -453,32 +503,43 @@ class AMCMHLocalizer:
 
     def publish_particles(self):
         marker_array = MarkerArray()
-        weights = self.weights
+
+        clear_marker = Marker()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        weights = self.weights[:len(self.particles)]
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
 
         cos_half_theta = np.cos(self.particles[:,2] / 2.0)
         sin_half_theta = np.sin(self.particles[:,2] / 2.0)
-        
-        for i, p in enumerate(self.particles):
+        marker_id =0
+        for p, w in zip(self.particles, norm_weights):
             if not self.is_valid_position(p[0], p[1]):
                 continue
                 
             marker = Marker()
             marker.header.frame_id = "map"
-            marker.id = i
+            marker.header.stamp = rospy.Time.now()
+            marker.ns = "particles"
+            marker.id = marker_id
+            marker_id += 1
             marker.type = Marker.ARROW
             marker.action = Marker.ADD
             marker.scale.x = 0.1
             marker.scale.y = 0.02
             marker.scale.z = 0.02
             marker.color.a = 1.0
-            marker.color.r = norm_weights[i]
+            marker.color.r = w
             marker.color.g = 0.0
-            marker.color.b = 1 - norm_weights[i]
+            marker.color.b = 1 - w
             marker.pose.position.x = p[0]
             marker.pose.position.y = p[1]
-            marker.pose.orientation.z = sin_half_theta[i]
-            marker.pose.orientation.w = cos_half_theta[i]
+            theta = p[2]
+            z = np.sin(theta / 2.0)
+            marker.pose.orientation.z = z
+            marker.pose.orientation.w = np.cos(theta / 2.0)
+            
             
             marker_array.markers.append(marker)
         
@@ -488,18 +549,24 @@ class AMCMHLocalizer:
     def publish_estimate(self):
 
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
+        cos_mean = np.sum(np.cos(self.particles[:,2]) * self.weights)
+        sin_mean = np.sum(np.sin(self.particles[:,2]) * self.weights)
+        mean_theta = np.arctan2(sin_mean, cos_mean)
         diffs = self.particles.copy()
         diffs[:, 0] -= mean_pose[0]
         diffs[:, 1] -= mean_pose[1]
-        diffs[:, 2] = normalize_angle_array(self.particles[:, 2], mean_pose[2])
+        diffs[:, 2] = normalize_angle_array(self.particles[:, 2], mean_theta)
+        if len(self.particles) < 2:
+            rospy.logwarn("Not enough particles to compute covariance")
+            return
         cov = np.cov(diffs.T, aweights=self.weights)
         pose = PoseWithCovarianceStamped()
         pose.header.stamp = rospy.Time.now()
         pose.header.frame_id = "map"
         pose.pose.pose.position.x = mean_pose[0]
         pose.pose.pose.position.y = mean_pose[1]
-        pose.pose.pose.orientation.z = np.sin(mean_pose[2] / 2.0)
-        pose.pose.pose.orientation.w = np.cos(mean_pose[2] / 2.0)
+        pose.pose.pose.orientation.z = np.sin(mean_theta / 2.0)
+        pose.pose.pose.orientation.w = np.cos(mean_theta / 2.0)
 
         # Preenche a matriz de covariância (6x6 flatten)
         # Usamos apenas as dimensões x, y, theta → [0,0], [1,1], [5,5]
