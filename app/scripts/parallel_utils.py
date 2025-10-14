@@ -30,7 +30,7 @@ def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, gri
 
 @njit
 def gaussian_prob(diff, sigma):
-    return np.exp(-0.5 * (diff / sigma)**2)
+    return np.exp(-0.5 * (diff / sigma)**2)/np.sqrt(2*np.pi*sigma**2)
 
 
 @njit
@@ -70,6 +70,11 @@ def normalize_angle(theta):
 def normalize_angle_array(angles, mean_angle):
     """
     Normaliza vetor de ângulos em relação ao ângulo médio.
+    Args:
+        angles: (N,) array de ângulos
+        mean_angle: float, ângulo médio
+    Returns:
+        (N,) array de ângulos normalizados
     """
     n = angles.shape[0]
     result = np.empty(n, dtype=np.float32)
@@ -78,15 +83,33 @@ def normalize_angle_array(angles, mean_angle):
     return result
 
 @njit(parallel=True)
-def compute_likelihoods(scan_ranges, angles, particles, distance_map, map_resolution, map_origin, width, height):
+def compute_likelihoods(scan_ranges, angles, particles, distance_map,
+                        map_resolution, map_origin, width, height,
+                        sigma_hit=0.35, z_hit=0.9, z_rand=0.1, max_range=10, step=1):
+    
+    """
+    Compute particle likelihoods using beam model with distance map.
+    Args:
+        scan_ranges: (M,) array of LIDAR ranges
+        angles: (M,) array of LIDAR angles
+        particles: (N, 3) array of particle poses [x, y, theta]
+        distance_map: (H*W,) flattened distance map
+        map_resolution: float, map resolution in meters/cell
+        map_origin: (2,) array, map origin [origin_x, origin_y]
+        width: int, map width in cells
+        height: int, map height in cells
+        sigma_hit: float, standard deviation for hit model
+        z_hit: float, weight for hit model
+        z_rand: float, weight for random model
+        max_range: float, maximum sensor range
+        step: int, downsampling step for beams
+    Returns:
+        scores: (N,) array of log-likelihoods for each particle
+    """
+
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
 
-    sigma_hit = 0.35        # maior tolerância → pesos mais "generosos"
-    z_hit = 0.9
-    z_rand = 0.1
-    max_range = 10
-    step = 1
     for i in prange(N):
         x, y, theta = particles[i]
         log_score = 0.0
@@ -184,6 +207,19 @@ def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_re
 
 @njit(parallel=True)
 def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
+
+    """
+    Metropolis-Hastings resampling step.
+    Args:
+        particles: (N, 3) array of current particle poses
+        proposed_particles: (N, 3) array of proposed particle poses
+        likelihoods: (N,) array of likelihoods for proposed particles
+        old_weights: (N,) array of weights for current particles
+    Returns:
+        new_particles: (N, 3) array of resampled particle poses
+        new_weights: (N,) array of updated weights
+    """
+
     N = particles.shape[0]
     new_particles = particles.copy()
     new_weights = old_weights.copy()
@@ -201,12 +237,24 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
 
 @njit(parallel=True)
 def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights, trans_forward, trans_backward):
-    
+
+    """
+    Asymmetric Metropolis-Hastings resampling step.
+    Args:
+        particles: (N, 3) array of current particle poses
+        proposed_particles: (N, 3) array of proposed particle poses
+        likelihoods: (N,) array of likelihoods for proposed particles
+        old_weights: (N,) array of weights for current particles
+        trans_forward: (N,) array of transition probabilities p(x'|x)
+        trans_backward: (N,) array of transition probabilities p(x|x')
+    Returns:
+        new_particles: (N, 3) array of resampled particle poses
+        new_weights: (N,) array of updated weights
+    """
+
     N = particles.shape[0]
     new_particles = particles.copy()
     new_weights = old_weights.copy()
-
-
 
     for i in prange(N):
         p_old = old_weights[i]
@@ -237,7 +285,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
     Args:
         particles_prev: (N, 3) previous particle poses [x, y, theta]
         particles_curr: (N, 3) current particle poses [x, y, theta]
-        delta: tuple (rot1, trans, rot2) - observed odometry motion
+        delta: array (rot1, trans, rot2) - observed odometry motion
         alpha: tuple (a1, a2, a3, a4) - motion noise parameters
 
     Returns:
@@ -365,6 +413,18 @@ def compute_valid_mask(particles, map_data, width, height, resolution, origin_x,
 
 @njit
 def low_variance_resample_numba(particles, weights, N):
+
+    """ 
+    Low-variance resampling algorithm (stochastic universal sampling).
+    Args:
+        particles: (N, 3) array of particle poses
+        weights: (N,) array of particle weights
+        N: int, number of particles to resample
+    Returns:
+        new_particles: (N, 3) array of resampled particle poses
+        new_weights: (N,) array of uniform weights after resampling 
+    """
+
     weights = weights / np.sum(weights)  # ensure normalization
     new_particles = np.zeros_like(particles)
     new_weights = np.full(N, 1.0 / N, dtype=np.float32)
@@ -467,6 +527,23 @@ def reinitialize_particles_numba(num_new, occupancy_map, res, origin_x, origin_y
 @njit
 def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
                        epsilon, z, max_samples, min_particles):
+    
+    '''
+    KLD-sampling para AMCL.
+    Resampling com critério de parada baseado em Kullback-Leibler Divergence.
+    Args:
+        particles: (N, 3) array de partículas
+        weights: (N,) array de pesos normalizados
+        bin_size_xy: tamanho da célula em x e y (metros)
+        bin_size_theta: tamanho da célula em theta (radianos)   
+        epsilon: erro máximo permitido
+        z: valor z para intervalo de confiança
+        max_samples: número máximo de amostras
+        min_particles: número mínimo de partículas
+    Returns:
+        sampled_particles: (M, 3) array de partículas amostradas
+        
+    '''
     bins = set()
     sampled_particles = np.empty((max_samples, 3), dtype=np.float32)
     count = 0

@@ -10,16 +10,17 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
 
 class AMCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
-        self.mode = rospy.get_param('localization_mode', 'MHAMCL')  # padrão: AMCL
+        self.mode = rospy.get_param('localization_mode', 'MHAMCL')  # padrão: MHAMCL
         self.use_mh = 'MH' in self.mode
-        self.use_adaptive = 'A' in self.mode  # AMCL ou MHAMCL usam KLD
+        self.use_adaptive = 'AMCL' in self.mode  # AMCL ou MHAMCL usam KLD
+        self.assym = 'AMH' in self.mode  # MHAMCL usa transição assimétrica
 
-        rospy.loginfo(f"Modo de localização: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive}")
+        rospy.loginfo(f"Modo de localização: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive},  Assymetric: {self.assym}")
 
 
         # Parâmetros gerais
@@ -35,6 +36,8 @@ class AMCMHLocalizer:
 
         self.dt = 0.02 #intervalo de tempo do scan
 
+        self.delta = (0.0, 0.0, 0.0)  # (rot1, trans, rot2)
+
         # Parâmetros KLD
         self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
         self.kld_delta = rospy.get_param('kld_delta', 0.99)
@@ -42,10 +45,17 @@ class AMCMHLocalizer:
         self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radianos
         self.kld_n_max = self.num_particles
         self.kld_z = rospy.get_param('kld_z', 2)
+        
 
         self.initial_pose = None  # Armazenará a pose inicial [x, y, theta]
         self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Covariância inicial (x, y em metros, theta em rad)
         self.initialized = rospy.get_param('initialized', False)  # Flag para controle
+
+        self.sigma_hit = rospy.get_param('sigma_hit', 0.2)  # Parâmetro para a função de probabilidade gaussiana
+        self.max_range = rospy.get_param('max_range', 10.0)  # Alcance máximo do LiDAR para considerar (em metros)
+        self.z_hit = rospy.get_param('z_hit', 0.8)  # Peso para a parte "hit"
+        self.z_rand = rospy.get_param('z_rand', 0.2)  # Peso para a parte "random"
+        self.step = rospy.get_param('step', 1)  # Usar cada 'step' medidas do LiDAR para acelerar
 
         self.timeout = 10
 
@@ -174,7 +184,7 @@ class AMCMHLocalizer:
                                                            self.distance_map,self.resolution,self.origin_np)
             
         else:
-            rospy.loginfo("Inicializando partículas uniformemente no mapa")
+            #rospy.loginfo("Inicializando partículas uniformemente no mapa")
             final_particles = generate_valid_particles(self.num_particles,
                                              self.map_data, self.resolution,
                                              self.origin_np[0], self.origin_np[1], self.width, self.height)
@@ -244,7 +254,8 @@ class AMCMHLocalizer:
         scores_pre = compute_likelihoods(
         self.scan_ranges, self.angles, self.particles_prev,
         self.distance_map, self.resolution, self.origin_np,
-        self.width, self.height
+        self.width, self.height,self.sigma_hit,
+        self.z_hit, self.z_rand, self.max_range, self.step
         )
 
         weights_pre = self.convert_scores(scores_pre)
@@ -252,12 +263,12 @@ class AMCMHLocalizer:
         scores_post = compute_likelihoods(
         self.scan_ranges, self.angles, self.particles,
         self.distance_map, self.resolution, self.origin_np,
-        self.width, self.height
+        self.width, self.height,self.sigma_hit,
+        self.z_hit, self.z_rand, self.max_range, self.step
         )
 
         weights_post = self.convert_scores(scores_post)
 
-        #rospy.loginfo(f"Mean weights: {np.mean(weights_pre):.6f}")
 
         return weights_pre, weights_post
     
@@ -348,8 +359,14 @@ class AMCMHLocalizer:
 
     def update_particles_mh(self,weights_pre, weights_post):
 
-        
-        mh_particles, weights = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
+        if not self.assym:
+            mh_particles, weights = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
+        else:
+
+            trans_forward, trans_backward = self.transition_probability()
+            mh_particles, weights = assym_mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre,trans_forward,trans_backward)
+
+
         self.particles = mh_particles
         
         return weights
@@ -374,9 +391,10 @@ class AMCMHLocalizer:
         current_odom = np.array([position.x, position.y, yaw])
 
         if self.last_odom is not None:
-            delta = self.compute_motion(self.last_odom, current_odom)
+
+            self.delta = self.compute_motion(self.last_odom, current_odom)
             
-            self.particles_prop = apply_motion_model_parallel(self.particles,delta,self.alpha,
+            self.particles_prop = apply_motion_model_parallel(self.particles,self.delta,self.alpha,
                                                               self.map_data, self.resolution,
                                                               self.origin_np[0], self.origin_np[1],
                                                               self.width,self.height)
@@ -403,6 +421,22 @@ class AMCMHLocalizer:
         return rot1, trans, rot2
 
 
+    def transition_probability(self):
+
+        trans_forward = motion_model_odometry_parallel(self.particles_prev,self.particles,
+                                                       np.array(self.delta), self.alpha)
+        
+        dx, dy, dtheta = self.delta
+        backward_delta = np.array([
+            -dx * np.cos(dtheta) - dy * np.sin(dtheta),
+            dx * np.sin(dtheta) - dy * np.cos(dtheta),
+            -dtheta
+        ])
+        
+        trans_backward = motion_model_odometry_parallel(self.particles,self.particles_prev,
+                                                        backward_delta, self.alpha)
+
+        return trans_forward, trans_backward
     #======================================================================
     # Resample
     #======================================================================
@@ -542,8 +576,9 @@ class AMCMHLocalizer:
             
             
             marker_array.markers.append(marker)
-        
-        self.marker_pub.publish(marker_array)
+
+        if not rospy.is_shutdown():
+            self.marker_pub.publish(marker_array)
 
     
     def publish_estimate(self):
@@ -584,7 +619,8 @@ class AMCMHLocalizer:
         cov_flat[35] = cov[2, 2]          # theta-theta
 
         pose.pose.covariance = cov_flat.tolist()
-        self.pose_pub.publish(pose)
+        if not rospy.is_shutdown():
+            self.pose_pub.publish(pose)
 
 
 if __name__ == '__main__':

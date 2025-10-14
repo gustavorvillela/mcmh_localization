@@ -5,11 +5,13 @@
 #   ./run_all_modes.sh arquivo.bag     # roda apenas esse bag
 #   ./run_all_modes.sh pasta_de_bags/  # roda todos os bags dessa pasta
 
-MODES=("MCL" "MHMCL" "AMCL" "MHAMCL")
+MODES=("MCL" "MHMCL" "AMCL" "MHAMCL" "AMHMCL" "AMHAMCL")
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=10   # número de repetições por cenário
+REPEATS=5   # número de repetições por cenário
 mkdir -p "$RESULTS_DIR"
+
+echo -e "\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
 
 # Determina origem dos bags
 if [ $# -eq 0 ]; then
