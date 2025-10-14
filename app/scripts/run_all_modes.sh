@@ -57,10 +57,14 @@ for BAG in "${BAGS[@]}"; do
 
             ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
             wait $LAUNCH_PID
+            rosnode kill -a
+            sleep 2
             kill $WATCHDOG_PID 2>/dev/null
 
             if ps -p $LAUNCH_PID > /dev/null; then
                 echo "Processo travado, matando roslaunch (PID $LAUNCH_PID)"
+                rosnode kill -a
+                sleep 2
                 kill $LAUNCH_PID
             fi
 
