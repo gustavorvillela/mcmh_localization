@@ -5,11 +5,13 @@
 #   ./run_all_modes.sh arquivo.bag     # roda apenas esse bag
 #   ./run_all_modes.sh pasta_de_bags/  # roda todos os bags dessa pasta
 
-MODES=("MCL" "MHMCL" "AMCL" "MHAMCL")
+MODES=("MCL" "MHMCL" "AMCL" "MHAMCL" "AMHMCL" "AMHAMCL")
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=10   # número de repetições por cenário
+REPEATS=5   # número de repetições por cenário
 mkdir -p "$RESULTS_DIR"
+
+echo -e "\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
 
 # Determina origem dos bags
 if [ $# -eq 0 ]; then
@@ -55,10 +57,14 @@ for BAG in "${BAGS[@]}"; do
 
             ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
             wait $LAUNCH_PID
+            rosnode kill -a
+            sleep 2
             kill $WATCHDOG_PID 2>/dev/null
 
             if ps -p $LAUNCH_PID > /dev/null; then
                 echo "Processo travado, matando roslaunch (PID $LAUNCH_PID)"
+                rosnode kill -a
+                sleep 2
                 kill $LAUNCH_PID
             fi
 
