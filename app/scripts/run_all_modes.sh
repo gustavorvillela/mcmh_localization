@@ -6,9 +6,12 @@
 #   ./run_all_modes.sh pasta_de_bags/  # roda todos os bags dessa pasta
 
 MODES=("MCL" "MHMCL" "AMCL" "MHAMCL" "AMHMCL" "AMHAMCL")
+#MODES=("MCL" "MHMCL" "AMHMCL")
+#MODES=("AMCL" "MHAMCL" "AMHAMCL")
+
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=5   # número de repetições por cenário
+REPEATS=10   # número de repetições por cenário
 mkdir -p "$RESULTS_DIR"
 
 echo -e "\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
@@ -48,7 +51,7 @@ for BAG in "${BAGS[@]}"; do
     BAG_NAME=$(basename "$BAG" .bag)
     for MODE in "${MODES[@]}"; do
         for ((i=1; i<=REPEATS; i++)); do
-            echo "=== Rodando $MODE com $BAG (execução $i/$REPEATS) ==="
+            echo -e "\n\n=== Rodando $MODE com $BAG (execução $i/$REPEATS) ===\n\n"
             export BAG_FILE="$BAG"
             RESULT_NAME="${BAG_NAME}_${MODE}_run${i}"
 

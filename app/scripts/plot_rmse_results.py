@@ -133,7 +133,7 @@ def main():
     plots_dir = os.path.join(results_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
 
-    colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c', 'AMHAMCL': '#9467bd'}
+    colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c', 'AMHMCL': "#4C2F67", 'AMHAMCL': '#8c564b'}
 
     # Gera gráficos para cada teste
     for test_name, algorithms in all_data.items():
@@ -211,7 +211,7 @@ def main():
                        label=algo,
                        width=0.6)
                 plt.text(i, data['mean_rmse']/2, 
-                        f'{data["mean_rmse"]:.3f}±{data["std_rmse"]:.3f}',
+                        f'{data["mean_rmse"]:.1f}±{data["std_rmse"]:.1f}',
                         ha='center', va='center',
                         color='white',
                         fontweight='bold',
@@ -256,14 +256,14 @@ def generate_html_summary(data, output_dir):
     
     # Tabela resumo
     html_content += "<h2>Resumo Comparativo (média ± std)</h2><table>"
-    html_content += "<tr><th>Teste</th><th>MCL</th><th>AMCL</th><th>MHMCL</th><th>MHAMCL</th><th>AMHAMCL</th></tr>"
+    html_content += "<tr><th>Teste</th><th>MCL</th><th>AMCL</th><th>MHMCL</th><th>MHAMCL</th><th>AMHMCL</th><th>AMHAMCL</th></tr>"
     
     for test_name in sorted(data.keys()):
         html_content += f"<tr><td>{test_name.replace('_', ' ').title()}</td>"
         all_rmses = [v['mean_rmse'] for v in data[test_name].values() if v['mean_rmse'] is not None]
         best_rmse = min(all_rmses) if all_rmses else None
 
-        for algo in ['MCL', 'AMCL', 'MHMCL','MHAMCL', 'AMHAMCL']:
+        for algo in ['MCL', 'AMCL', 'MHMCL','MHAMCL', 'AMHMCL', 'AMHAMCL']:
             if algo in data[test_name] and data[test_name][algo]['mean_rmse'] is not None:
                 rmse = data[test_name][algo]['mean_rmse']
                 std = data[test_name][algo]['std_rmse']

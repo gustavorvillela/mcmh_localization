@@ -256,19 +256,21 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
     new_particles = particles.copy()
     new_weights = old_weights.copy()
 
-    for i in prange(N):
-        p_old = old_weights[i]
-        p_new = likelihoods[i]
-        trans_f = trans_forward[i]
-        trans_b = trans_backward[i]
+    log_dist_pre = np.log(old_weights + 1e-10)
+    log_dist_post = np.log(likelihoods + 1e-10)
+    log_trans_forward = np.log(trans_forward + 1e-10)
+    log_trans_backward = np.log(trans_backward + 1e-10)
 
-        num = p_new * trans_b
-        den = p_old * trans_f
-        alpha = min(1.0, num / den) if den > 0 else 1.0
+    for i in prange(N):
         
+        log_num = log_dist_post[i] + log_trans_backward[i]
+        log_den = log_dist_pre[i] + log_trans_forward[i]
+        log_alpha = log_num - log_den
+        alpha = min(1.0, np.exp(log_alpha)) if log_den > 0 else 1.0
+
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
-            new_weights[i] = p_new
+            new_weights[i] = likelihoods[i]
 
 
     return new_particles, new_weights

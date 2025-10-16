@@ -6,6 +6,14 @@
   <!-- Define nome do arquivo de resultado (sem extensão) -->
   <arg name="result_name" default=""/>
 
+  <!-- Avaliação da estimativa vs ground truth -->
+  <node name="evaluate_localization" pkg="mcmh_localization" type="evaluate_localization.py" output="screen">
+    <param name="result_name" value="$(find mcmh_localization)/results/$(arg result_name)"/>
+    <param name="est_topic" value="/mcmh_estimated_pose"/>
+    <param name="gt_topic" value="/gazebo/model_states"/>
+    <param name="robot_name" value="turtlebot3_waffle"/>
+  </node>
+
 
   <!-- Carrega parâmetros gerais -->
   <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
@@ -38,11 +46,4 @@
   <!-- Player do rosbag com relógio simulado -->
   <node pkg="rosbag" type="play" name="play_bag" args="--clock $(arg bag_file)" />
 
-  <!-- Avaliação da estimativa vs ground truth -->
-  <node name="evaluate_localization" pkg="mcmh_localization" type="evaluate_localization.py" output="screen">
-    <param name="result_name" value="$(find mcmh_localization)/results/$(arg result_name)"/>
-    <param name="est_topic" value="/mcmh_estimated_pose"/>
-    <param name="gt_topic" value="/gazebo/model_states"/>
-    <param name="robot_name" value="turtlebot3_waffle"/>
-  </node>
 </launch>

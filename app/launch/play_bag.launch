@@ -1,0 +1,64 @@
+<launch>
+  <!-- ========================================================= -->
+  <!-- Arguments -->
+  <!-- ========================================================= -->
+  <arg name="bag_file" default=""/>
+  <arg name="mode" default="MCL"/>
+  <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
+  <arg name="rviz" default="true"/>
+
+  <!-- ========================================================= -->
+  <!-- Parameters -->
+  <!-- ========================================================= -->
+  <!-- Load general params -->
+  <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
+
+  <!-- Set localization mode -->
+  <param name="localization_mode" value="$(arg mode)"/>
+
+  <!-- ========================================================= -->
+  <!-- Nodes -->
+  <!-- ========================================================= -->
+
+  <!-- Main localizer node -->
+  <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen">
+    <param name="mode" value="$(arg mode)"/>
+  </node>
+
+  <!-- Pose broadcaster -->
+  <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen"/>
+
+  <!-- ========================================================= -->
+  <!-- ROSBAG Playback -->
+  <!-- ========================================================= -->
+  <!-- Simulated time -->
+  <param name="/use_sim_time" value="true"/>
+
+  <!-- Bag player with simulated clock -->  
+  <node pkg="rosbag" type="play" name="play_bag"
+    args="--clock --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen" />
+
+
+  <!-- ========================================================= -->
+  <!-- Evaluation Node -->
+  <!-- ========================================================= 
+  <node name="evaluate_localization"
+        pkg="mcmh_localization"
+        type="evaluate_localization.py"
+        output="screen">
+    <param name="result_name" value="$(find mcmh_localization)/results/$(arg result_name)"/>
+    <param name="est_topic" value="/mcmh_estimated_pose"/>
+    <param name="gt_topic" value="/gazebo/model_states"/>
+    <param name="robot_name" value="turtlebot3_waffle"/>
+  </node>-->
+
+  <!-- ========================================================= -->
+  <!-- Optional RViz Visualization -->
+  <!-- ========================================================= -->
+  <group if="$(arg rviz)">
+    <node pkg="rviz" type="rviz" name="rviz"
+           args="-d $(find mcmh_localization)/rviz/mcmh_bag_view.rviz"
+          output="screen"/>
+  </group>
+
+</launch>
