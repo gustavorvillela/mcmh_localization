@@ -17,7 +17,7 @@
 
 localization_mode: "AMHAMCL"  
 initialized: False
-init_particles: 1000
+init_particles: 1500
 
 #=======================================
 # Motion model parameters
@@ -25,19 +25,19 @@ init_particles: 1000
 
 # Tune these parameters based on your robot's motion characteristics
 
-alpha1: 0.001 # rotation noise due to rotation
-alpha2: 0.007 # translation noise due to rotation
-alpha3: 0.005 # rotation noise due to translation
-alpha4: 0.004 # translation noise due to translation
+alpha1: 0.002 # rotation noise due to rotation
+alpha2: 0.03 # translation noise due to rotation
+alpha3: 0.08 # rotation noise due to translation
+alpha4: 0.002 # translation noise due to translation
 
 #=======================================
 # KLD Resampling parameters
 #=======================================
 
-kld_epsilon: 0.02
+kld_epsilon: 0.03
 kld_z: 2 # 99% confidence interval
-kld_bin_size_xy: 0.15  # 20 cm
-kld_bin_size_theta: 0.1745  # 5 graus em radianos
+kld_bin_size_xy: 0.20  # 20 cm
+kld_bin_size_theta: 0.1745  # 10 graus em radianos
 kld_delta: 0.99
 min_particles: 100
 max_particles: 5000
@@ -47,8 +47,8 @@ max_particles: 5000
 # AMCL parameters
 #=======================================
 
-alpha_slow: 0.0005 # slow learning rate
-alpha_fast: 0.05  # fast learning rate
+alpha_slow: 0.04 # slow learning rate
+alpha_fast: 0.6  # fast learning rate
 
 
 
@@ -59,9 +59,9 @@ alpha_fast: 0.05  # fast learning rate
 # Tune these parameters based on your LiDAR characteristics and environment
 # or using a learn intrinsic parameters method
 
-sigma_hit: 0.25
-z_hit: 0.8
-z_rand: 0.1
-max_range: 10.0
+sigma_hit: 0.3
+z_hit: 0.75
+z_rand: 0.25
+max_range: 5.0
 step: 1
 

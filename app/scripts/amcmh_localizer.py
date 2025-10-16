@@ -84,7 +84,7 @@ class AMCMHLocalizer:
         self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
         self.max_particles = self.max_particles = rospy.get_param('max_particles', 5000)
         self.w_slow = 1e-3
-        self.w_fast = 1e-6
+        self.w_fast = 1e-3
  
         # Carrega o mapa
         
