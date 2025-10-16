@@ -227,6 +227,58 @@ def main():
         plt.close()
         print(f"Gráfico de RMSE salvo: {bar_plot_path}")
 
+    # ===============================
+    # NOVO GRÁFICO: RMSE × número de partículas
+    # ===============================
+
+    from collections import defaultdict
+    import re
+
+    particle_data = defaultdict(lambda: defaultdict(list))
+
+    # Extrai RMSE e partículas de cada teste
+    for test_name, algos in all_data.items():
+        # Tenta extrair o número de partículas do nome (ex: "L_rest_MCL_2000p" -> 2000)
+        match = re.search(r'(\d+)p', test_name)
+        if not match:
+            continue
+        num_particles = int(match.group(1))
+
+        for algo, data in algos.items():
+            if data.get('mean_rmse') is not None:
+                particle_data[algo]['particles'].append(num_particles)
+                particle_data[algo]['mean_rmse'].append(data['mean_rmse'])
+                particle_data[algo]['std_rmse'].append(data['std_rmse'])
+
+    # Gera o gráfico RMSE × Partículas
+    if particle_data:
+        plt.figure(figsize=(8, 6))
+        colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c'}
+
+        for algo, vals in particle_data.items():
+            if vals['particles']:
+                sorted_idx = np.argsort(vals['particles'])
+                sorted_particles = np.array(vals['particles'])[sorted_idx]
+                sorted_rmse = np.array(vals['mean_rmse'])[sorted_idx]
+                sorted_std = np.array(vals['std_rmse'])[sorted_idx]
+
+                plt.errorbar(sorted_particles, sorted_rmse, yerr=sorted_std,
+                             fmt='-o', capsize=5, label=algo,
+                             color=colors.get(algo, '#555555'))
+
+        plt.title('RMSE Médio × Número de Partículas')
+        plt.xlabel('Número de Partículas')
+        plt.ylabel('RMSE Médio (m)')
+        plt.grid(True, linestyle='--', alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+
+        rmse_vs_particles_path = os.path.join(plots_dir, 'rmse_vs_particles.png')
+        plt.savefig(rmse_vs_particles_path, bbox_inches='tight', dpi=150)
+        plt.close()
+        print(f"Gráfico RMSE × partículas salvo: {rmse_vs_particles_path}")
+
+
     # Gera tabela resumo HTML
     generate_html_summary(all_data, results_dir)
 
