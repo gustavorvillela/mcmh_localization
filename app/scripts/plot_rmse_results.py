@@ -75,7 +75,11 @@ def main():
     
     # Processa cada arquivo
     for filename in os.listdir(results_dir):
-        if filename.endswith('.txt') and not filename.startswith('poses_'):
+        if (
+            filename.endswith('.txt')
+            and not filename.startswith('poses_')
+            and 'p_run' not in filename  # ← ignora arquivos do particle sweep
+        ):
             parts = filename.replace('.txt','').split('_')
             if parts[-1].startswith("run"):
                 run_id = parts[-1]
@@ -111,6 +115,8 @@ def main():
                 if final_rmse is not None:
                     all_data[test_name][algorithm]['rmses'].append(final_rmse)
                 print(f"Processado: {filename} | Pontos: {len(times)} | RMSE: {final_rmse:.4f}")
+        elif 'p_run' in filename:
+            print(f"Ignorado (particle sweep): {filename}")
 
     if not all_data:
         print("Nenhum dado válido encontrado.")
