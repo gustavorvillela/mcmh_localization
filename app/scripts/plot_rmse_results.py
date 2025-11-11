@@ -230,7 +230,7 @@ def main():
     # ===============================
     # NOVO GRÁFICO: RMSE × número de partículas
     # ===============================
-
+    '''
     from collections import defaultdict
     import re
 
@@ -253,7 +253,7 @@ def main():
     # Gera o gráfico RMSE × Partículas
     if particle_data:
         plt.figure(figsize=(8, 6))
-        colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c'}
+        colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c', 'AMHMCL': "#4C2F67", 'AMHAMCL': '#8c564b'}
 
         for algo, vals in particle_data.items():
             if vals['particles']:
@@ -278,7 +278,7 @@ def main():
         plt.close()
         print(f"Gráfico RMSE × partículas salvo: {rmse_vs_particles_path}")
 
-
+        '''
     # Gera tabela resumo HTML
     generate_html_summary(all_data, results_dir)
 

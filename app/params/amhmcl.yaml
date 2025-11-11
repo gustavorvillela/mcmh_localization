@@ -16,7 +16,7 @@
 # the expected initial uncertainty of the robot pose
 
 localization_mode: "AMHAMCL"  
-initialized: False
+initialized: True
 init_particles: 1500
 
 #=======================================
@@ -25,10 +25,10 @@ init_particles: 1500
 
 # Tune these parameters based on your robot's motion characteristics
 
-alpha1: 0.002 # rotation noise due to rotation
-alpha2: 0.03 # translation noise due to rotation
-alpha3: 0.08 # rotation noise due to translation
-alpha4: 0.002 # translation noise due to translation
+alpha1: 0.005   # rotation noise due to rotation
+alpha2: 0.005   # translation noise due to rotation
+alpha3: 0.008   # rotation noise due to translation
+alpha4: 0.004   # translation noise due to translation
 
 #=======================================
 # KLD Resampling parameters
@@ -59,9 +59,9 @@ alpha_fast: 0.6  # fast learning rate
 # Tune these parameters based on your LiDAR characteristics and environment
 # or using a learn intrinsic parameters method
 
-sigma_hit: 0.3
-z_hit: 0.75
-z_rand: 0.25
-max_range: 5.0
+sigma_hit: 0.35
+z_hit: 0.85
+z_rand: 0.15
+max_range: 10.0
 step: 1
 

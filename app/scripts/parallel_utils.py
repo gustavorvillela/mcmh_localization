@@ -133,7 +133,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                 index = my * width + mx
                 dist = distance_map[index]
                 if dist <= max_range:
-                    p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))/np.sqrt(2*np.pi*sigma_hit**2)
+                    p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))#/np.sqrt(2*np.pi*sigma_hit**2)
                 else:
                     p_hit = 0.0
                 p_rand = 1.0 / max_range if 0 <= r <= max_range else 0.0

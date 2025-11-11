@@ -2,7 +2,7 @@
   <!-- ========================================================= -->
   <!-- Arguments -->
   <!-- ========================================================= -->
-  <arg name="bag_file" default=""/>
+  <arg name="bag_file" default="L_rest"/>
   <arg name="mode" default="MCL"/>
   <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
   <arg name="rviz" default="true"/>
@@ -19,6 +19,22 @@
   <!-- ========================================================= -->
   <!-- Nodes -->
   <!-- ========================================================= -->
+
+  <!-- Publisher contínuo de pose inicial -->
+  <node name="continuous_initial_pose_publisher" pkg="mcmh_localization" type="initial_pose_pub.py" output="screen">
+    <param name="x" value="-2.0"/>
+    <param name="y" value="-0.5"/>
+    <param name="yaw" value="0.0"/>
+    <param name="publish_rate" value="1.0"/>
+    <rosparam param="covariance">
+      [0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0, 0.0, 0.1]
+    </rosparam>
+  </node>
 
   <!-- Main localizer node -->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen">

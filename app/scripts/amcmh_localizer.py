@@ -153,8 +153,8 @@ class AMCMHLocalizer:
         occupancy_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0
 
         rospy.loginfo("Gerando mapa de distância...")
-        dist_2d = distance_transform_edt(occupancy_binary == 0) * resolution
-        self.distance_map = dist_2d.flatten().astype(np.float32)
+        self.dist_2d = distance_transform_edt(occupancy_binary == 0) * resolution
+        self.distance_map = self.dist_2d.flatten().astype(np.float32)
         rospy.loginfo("Mapa de distância gerado.")
 
         # free cell coordinates in world frame (consistent with map_2d ordering)
@@ -181,7 +181,7 @@ class AMCMHLocalizer:
         if self.initialized == True:
             rospy.loginfo("Inicializando partículas com distribuição gaussiana")
             final_particles = initialize_gaussian_parallel(self.initial_pose,self.initial_cov,self.num_particles,
-                                                           self.distance_map,self.resolution,self.origin_np)
+                                                           self.dist_2d,self.resolution,self.origin_np)
             
         else:
             #rospy.loginfo("Inicializando partículas uniformemente no mapa")
@@ -352,7 +352,7 @@ class AMCMHLocalizer:
 
         max_score = np.max(scores)
         weights = np.zeros_like(scores)
-        weights = np.exp(scores - max_score)
+        weights = np.exp(scores)
         weights =  weights/np.sum(weights)
 
         return weights

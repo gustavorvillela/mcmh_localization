@@ -5,7 +5,7 @@
 #   ./run_all_modes.sh arquivo.bag     # roda apenas esse bag
 #   ./run_all_modes.sh pasta_de_bags/  # roda todos os bags dessa pasta
 
-MODES=("MCL" "MHMCL" "AMCL" "MHAMCL" "AMHMCL" "AMHAMCL")
+MODES=("MCL" "MHMCL" "MHAMCL" "AMCL" "AMHMCL" "AMHAMCL")
 #MODES=("MCL" "MHMCL" "AMHMCL")
 #MODES=("AMCL" "MHAMCL" "AMHAMCL")
 

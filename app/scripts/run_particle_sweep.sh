@@ -5,11 +5,11 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
-MODES=("MCL" "MHMCL" "AMCL" "MHAMCL")   # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 1000 2000 4000)  # valores de partículas a testar
+MODES=("MCL" "MHMCL" "AMCL" "MHAMCL" "AMHMCL" "AMHAMCL")  # Pode ajustar conforme quiser
+PARTICLE_COUNTS=(250  1000 2000 4000)  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=3   # número de repetições por configuração
+REPEATS=15   # número de repetições por configuração
 mkdir -p "$RESULTS_DIR"
 
 # Determina origem dos bags
