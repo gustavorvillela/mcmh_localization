@@ -1,27 +1,35 @@
-
 services:
   ros_noetic_dev:
     build:
       context: ../..
       dockerfile: mcmh_localization/deploy/Dockerfile
+
     container_name: ros_noetic_dev
-    runtime: nvidia
-    network_mode: host    # share host networking (works best with ROS)
+
+    network_mode: host
+
+    gpus: all
+
     volumes:
-      - ../app:/root/catkin_ws/src/mcmh_localization   # mount your source code
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../app:/root/catkin_ws/src/mcmh_localization
+      - /tmp/.X11-unix:/root/.X11-unix:rw
+      - /home/gustavo.villela/.Xauthority:/root/.Xauthority
       - ~/.gazebo/gui.ini:/root/.gazebo/gui.ini:ro
       - ~/.gazebo/models:/root/.gazebo/models:rw
       - /opt/ros/noetic/share/turtlebot3_description:/opt/ros/noetic/share/turtlebot3_description:ro
       - ../../turtlebot3_diff:/root/catkin_ws/src/turtlebot3_diff:rw
+
     environment:
+      - DISPLAY
+      - QT_X11_NO_MITSHM=1
+      - OGRE_RTT_MODE=Copy
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
-      - DISPLAY=${DISPLAY}
-      - QT_X11_NO_MITSHM=1
-      - XAUTHORITY=${XAUTHORITY}
+      - XAUTHLOCALHOSTNAME=localhost
+
     devices:
-      - /dev/dri:/dev/dri       # GPU acceleration for RViz/Gazebo
+      - /dev/dri:/dev/dri
+
     stdin_open: true
     tty: true
-    privileged: true            # needed for Gazebo physics
+    privileged: true

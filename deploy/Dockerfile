@@ -10,7 +10,10 @@ RUN apt-get update && apt-get install -y \
     python3-colcon-common-extensions \
     build-essential \
     tmux \
+    ca-certificates \
     git \
+    xauth \
+    mesa-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Python scientific stack
@@ -28,13 +31,20 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Initialize rosdep
-RUN rosdep init || true && rosdep update
+COPY /mcmh_localization/local_rosdep/sources.list.d/ /tmp/sources.list.d
+
+RUN mkdir -p /etc/ros/rosdep/sources.list.d && \
+    cp /tmp/sources.list.d/20-default.list /etc/ros/rosdep/sources.list.d/
+
+ENV ROSDISTRO_INDEX_URL=https://cdn.jsdelivr.net/gh/ros/rosdistro@master/index-v4.yaml
+RUN rosdep update
 
 # Set up catkin workspace
 WORKDIR /root/catkin_ws
 COPY mcmh_localization/app src/mcmh_localization
 
 COPY ./turtlebot3_diff src/turtlebot3
+
 
 
 # Install package dependencies
