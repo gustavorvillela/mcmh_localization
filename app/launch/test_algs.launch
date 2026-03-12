@@ -24,7 +24,7 @@
   <!-- Carrega o parâmetro do modo -->
   <param name="localization_mode" value="$(arg mode)"/>
 
-  <!-- Publisher contínuo de pose inicial -->
+  <!-- Publisher contínuo de pose inicial 
   <node name="continuous_initial_pose_publisher" pkg="mcmh_localization" type="initial_pose_pub.py" output="screen">
     <param name="x" value="-2.0"/>
     <param name="y" value="-0.5"/>
@@ -38,7 +38,7 @@
        0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
        0.0, 0.0, 0.0, 0.0, 0.0, 0.1]
     </rosparam>
-  </node>
+  </node>-->
 
   <!-- Nó do localizador -->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen" />

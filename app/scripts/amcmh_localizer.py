@@ -523,7 +523,8 @@ class AMCMHLocalizer:
 
         if len(self.particles) != N:
 
-            rospy.loginfo(f"Particle update!\n From: {N}  To: {len(self.particles)}")
+            #rospy.loginfo(f"Particle update!\n From: {N}  To: {len(self.particles)}")
+            pass
         
 
         

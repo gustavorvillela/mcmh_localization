@@ -16,8 +16,8 @@
 # the expected initial uncertainty of the robot pose
 
 localization_mode: "AMHAMCL"  
-initialized: True
-init_particles: 1500
+initialized: False
+#init_particles: 1500
 
 #=======================================
 # Motion model parameters
@@ -39,8 +39,8 @@ kld_z: 2 # 99% confidence interval
 kld_bin_size_xy: 0.20  # 20 cm
 kld_bin_size_theta: 0.1745  # 10 graus em radianos
 kld_delta: 0.99
-min_particles: 100
-max_particles: 5000
+#min_particles: 100
+#max_particles: 5000
 
 
 #=======================================

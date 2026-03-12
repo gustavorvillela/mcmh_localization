@@ -5,12 +5,22 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
-MODES=("MCL" "MHMCL" "AMCL" "MHAMCL" "AMHMCL" "AMHAMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250  1000 2000 4000)  # valores de partículas a testar
+MODES=("MCL" "MHMCL" "AMHMCL" "AMCL" "MHAMCL" "AMHAMCL")  # Pode ajustar conforme quiser
+PARTICLE_COUNTS=(250 500 1000 1500 2000 2500 3000)  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=15   # número de repetições por configuração
+REPEATS=20   # número de repetições por configuração
 mkdir -p "$RESULTS_DIR"
+
+############################################
+# Start roscore if it is not already running
+############################################
+if ! rostopic list >/dev/null 2>&1; then
+    echo "Starting roscore..."
+    roscore &
+    ROSCORE_PID=$!
+    sleep 3
+fi
 
 # Determina origem dos bags
 if [ $# -eq 0 ]; then
@@ -48,12 +58,12 @@ for BAG in "${BAGS[@]}"; do
                 export BAG_FILE="$BAG"
                 RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
 
+                rosparam set /init_particles "$PCOUNT"
+                rosparam set /max_particles $((PCOUNT * 2))
+                rosparam set /min_particles $((PCOUNT / 10))
                 roslaunch mcmh_localization test_algs.launch \
                     mode:=$MODE \
-                    result_name:=$RESULT_NAME \
-                    init_particles:=$PCOUNT \
-                    max_particles:=$((PCOUNT * 2)) \
-                    min_particles:=$((PCOUNT / 10)) &
+                    result_name:=$RESULT_NAME &
 
                 LAUNCH_PID=$!
                 ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
@@ -70,3 +80,11 @@ for BAG in "${BAGS[@]}"; do
         done
     done
 done
+
+
+############################################
+# Stop roscore
+############################################
+if [ ! -z "$ROSCORE_PID" ]; then
+    kill $ROSCORE_PID
+fi
