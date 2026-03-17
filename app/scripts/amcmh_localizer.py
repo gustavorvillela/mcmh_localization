@@ -55,6 +55,9 @@ class AMCMHLocalizer:
         self.max_range = rospy.get_param('max_range', 10.0)  # Alcance máximo do LiDAR para considerar (em metros)
         self.z_hit = rospy.get_param('z_hit', 0.8)  # Peso para a parte "hit"
         self.z_rand = rospy.get_param('z_rand', 0.2)  # Peso para a parte "random"
+        self.z_short = rospy.get_param('z_short', 0.05)  # Peso para a parte "short" (obstáculos inesperados)
+        self.z_max = rospy.get_param('z_max', 0.05)  # Peso para a parte "max" (leituras no alcance máximo)
+        self.lambda_short = rospy.get_param('lambda_short', 0.1)  # Lambda para a distribuição exponencial da parte "short"
         self.step = rospy.get_param('step', 1)  # Usar cada 'step' medidas do LiDAR para acelerar
 
         self.timeout = 10
@@ -255,7 +258,8 @@ class AMCMHLocalizer:
         self.scan_ranges, self.angles, self.particles_prev,
         self.distance_map, self.resolution, self.origin_np,
         self.width, self.height,self.sigma_hit,
-        self.z_hit, self.z_rand, self.max_range, self.step
+        self.z_hit, self.z_rand, self.max_range, self.step,
+        self.z_short, self.z_max, self.lambda_short
         )
 
         weights_pre = self.convert_scores(scores_pre)
@@ -264,7 +268,8 @@ class AMCMHLocalizer:
         self.scan_ranges, self.angles, self.particles,
         self.distance_map, self.resolution, self.origin_np,
         self.width, self.height,self.sigma_hit,
-        self.z_hit, self.z_rand, self.max_range, self.step
+        self.z_hit, self.z_rand, self.max_range, self.step,
+        self.z_short, self.z_max, self.lambda_short
         )
 
         weights_post = self.convert_scores(scores_post)
@@ -324,6 +329,8 @@ class AMCMHLocalizer:
             
         #Publish and resampling
         #rospy.loginfo("Publicando pose estimada")
+        #rospy.loginfo(f"Weight std: {np.std(self.weights):.6f} | w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | Num Particles: {len(self.particles)}")
+        #rospy.loginfo(f"Max weight: {np.max(self.weights):.6f}")
         self.publish_estimate()
         
         if self.use_adaptive:
@@ -352,7 +359,7 @@ class AMCMHLocalizer:
 
         max_score = np.max(scores)
         weights = np.zeros_like(scores)
-        weights = np.exp(scores)
+        weights = np.exp(scores)  # Subtrai o máximo para estabilidade numérica
         weights =  weights/np.sum(weights)
 
         return weights
@@ -416,7 +423,7 @@ class AMCMHLocalizer:
         trans = np.hypot(dx, dy)
         rot2 = dtheta - rot1
 
-        
+        #rospy.loginfo(f"Odometry delta: rot1={rot1:.4f} rad, trans={trans:.4f} m, rot2={rot2:.4f} rad")
 
         return rot1, trans, rot2
 

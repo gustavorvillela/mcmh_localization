@@ -10,7 +10,7 @@
   <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
 
   <!-- Extensão para o nome do resultado -->
-  <arg name="name_ext" default="gaussian_"/>
+  <arg name="name_ext" default=""/>
 
   <!-- Avaliação da estimativa vs ground truth -->
   <node name="evaluate_localization" pkg="mcmh_localization" type="evaluate_localization.py" output="screen">

@@ -85,7 +85,8 @@ def normalize_angle_array(angles, mean_angle):
 @njit(parallel=True)
 def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                         map_resolution, map_origin, width, height,
-                        sigma_hit=0.35, z_hit=0.9, z_rand=0.1, max_range=10, step=1):
+                        sigma_hit=0.35, z_hit=0.9, z_rand=0.1, max_range=10, step=1,
+                        z_short=0.05, z_max=0.05, lambda_short=0.1):
     
     """
     Compute particle likelihoods using beam model with distance map.
@@ -132,17 +133,16 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                     continue   # skip this beam
                 index = my * width + mx
                 dist = distance_map[index]
-                if dist <= max_range:
-                    p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))#/np.sqrt(2*np.pi*sigma_hit**2)
-                else:
-                    p_hit = 0.0
+                p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
+                p_max = 1.0 if abs(r - max_range) < 0.01 else 0.0
+                p_short = lambda_short * np.exp(-lambda_short * dist) if r >= 0 else 0.0
                 p_rand = 1.0 / max_range if 0 <= r <= max_range else 0.0
-                p = z_hit * p_hit + z_rand * p_rand
+                p = z_hit * p_hit + z_rand * p_rand + z_short * p_short + z_max * p_max
                 p = max(p, 1e-6)  # evita log(0)
                 log_score += np.log(p)
 
         if valid_count > 0:
-            scores[i] = log_score/valid_count 
+            scores[i] = log_score/valid_count  # média log-probabilidade por feixe
         else:
             scores[i] = -50  # penaliza partículas cegas
 
@@ -224,15 +224,18 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     new_particles = particles.copy()
     new_weights = old_weights.copy()
 
+    alpha_array = np.empty(N, dtype=np.float64)
+
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
         alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
 
-
+    print("MH acceptance rate:", np.mean(alpha_array))
     return new_particles, new_weights
 
 @njit(parallel=True)
@@ -260,19 +263,21 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
     log_dist_post = np.log(likelihoods + 1e-10)
     log_trans_forward = np.log(trans_forward + 1e-10)
     log_trans_backward = np.log(trans_backward + 1e-10)
+    alpha_array = np.empty(N, dtype=np.float64)
 
     for i in prange(N):
         
         log_num = log_dist_post[i] + log_trans_backward[i]
         log_den = log_dist_pre[i] + log_trans_forward[i]
         log_alpha = log_num - log_den
-        alpha = min(1.0, np.exp(log_alpha)) if log_den > 0 else 1.0
+        alpha = min(1.0, np.exp(log_alpha)) 
+        alpha_array[i] = alpha
 
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = likelihoods[i]
 
-
+    print("MH acceptance rate:", np.mean(alpha_array))
     return new_particles, new_weights
 
 #=======================================================================
@@ -337,14 +342,14 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     new_particles = np.empty_like(particles)
 
     max_attempts = 1000
-
+    nfloor = 0.002
 
     for i in prange(num_particles):
         success = False
         for _ in range(max_attempts):
-            r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans))
-            t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)))
-            r2_hat = rot2 + np.random.normal(0, a1 * abs(rot2) + a2 * abs(trans))
+            r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans) + nfloor)
+            t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)) + nfloor)
+            r2_hat = rot2 + np.random.normal(0, a1 * abs(rot2) + a2 * abs(trans) + nfloor)
 
 
             x, y, theta = particles[i]
