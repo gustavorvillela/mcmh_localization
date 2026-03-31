@@ -32,21 +32,28 @@ def extract_scenario(filename):
     return name.strip("_")
 
 def extract_rmse(filepath):
+    rmse_pos = None
+    rmse_yaw = None
     try:
         with open(filepath, 'r') as f:
             for line in f:
-                if line.startswith("RMSE final:"):
-                    return float(line.split(":")[1].strip())
+                if line.startswith("RMSE position:") or line.startswith("RMSE final:"):
+                    rmse_pos = float(line.split(":")[1].strip())
+                elif line.startswith("RMSE yaw"):
+                    rmse_yaw = float(line.split(":")[1].strip())
     except Exception as e:
         print(f"Erro lendo {filepath}: {e}")
-    return None
+    return rmse_pos, rmse_yaw
 
 def main():
     results_dir = os.path.join(os.path.dirname(__file__), '../results')
     plots_dir = os.path.join(results_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
 
-    data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    data = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
+        "pos": [],
+        "yaw": []
+    })))
 
     for filename in os.listdir(results_dir):
         if filename.endswith(".txt") and not filename.startswith("poses_"):
@@ -54,10 +61,11 @@ def main():
             particles = extract_particles(filename)
             scenario = extract_scenario(filename)
             if algo and particles:
-                rmse = extract_rmse(os.path.join(results_dir, filename))
-                if rmse is not None:
-                    data[scenario][algo][particles].append(rmse)
-                    print(f"{filename}: {scenario} | {algo} | {particles}p → RMSE={rmse:.4f}")
+                rmse_pos, rmse_yaw = extract_rmse(os.path.join(results_dir, filename))
+                if (rmse_pos is not None) and (rmse_yaw is not None):
+                    data[scenario][algo][particles]["pos"].append(rmse_pos)
+                    data[scenario][algo][particles]["yaw"].append(rmse_yaw)
+                    print(f"{filename}: {scenario} | {algo} | {particles}p → RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}")
 
     if not data:
         print("Nenhum dado válido encontrado.")
@@ -77,23 +85,26 @@ def main():
         avg_data = {}
         for algo, p_dict in scenario_data.items():
             avg_data[algo] = {
-                p: (np.mean(rmses), np.std(rmses))
-                for p, rmses in sorted(p_dict.items())
+                p: {
+                    "pos_mean": np.mean(p_dict[p]["pos"]),
+                    "pos_std": np.std(p_dict[p]["pos"]),
+                    "yaw_mean": np.mean(np.degrees(p_dict[p]["yaw"])) if p_dict[p]["yaw"] else None,
+                    "yaw_std": np.std(np.degrees(p_dict[p]["yaw"])) if p_dict[p]["yaw"] else None,
+                }
+                for p in sorted(p_dict.keys())
             }
 
         plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
 
         plt.figure(figsize=(8, 6))
-        plt.title(f"RMSE vs Número de Partículas\n{scenario}")
+        plt.title(f"Pose RMSE vs Número de Partículas\n{scenario}")
         plt.xlabel("Número de Partículas")
         plt.ylabel("RMSE (m)")
 
         for algo, results in avg_data.items():
 
             particles = sorted(results.keys())
-            means = [results[p][0] for p in particles]
-            stds = [results[p][1] for p in particles]
-
+            means = [results[p]["pos_mean"] for p in particles]
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
             plt.plot(
@@ -117,7 +128,7 @@ def main():
         std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std.png")
 
         plt.figure(figsize=(8,6))
-        plt.title(f"Std Dev vs Número de Partículas\n{scenario}")
+        plt.title(f"Pose Std Dev vs Número de Partículas\n{scenario}")
         plt.xlabel("Número de Partículas")
         plt.ylabel("RMSE Std Dev (m)")
 
@@ -125,7 +136,7 @@ def main():
 
             particles = sorted(p_dict.keys())
 
-            stds = [np.std(p_dict[p]) for p in particles]
+            stds = [results[p]["pos_std"] for p in particles]
 
             style = styles.get(algo, {'color':'#666','linestyle':'-','marker':'o','label':algo})
 
@@ -144,6 +155,81 @@ def main():
         plt.tight_layout()
         plt.savefig(std_plot_path, dpi=200)
         plt.close()
+
+        yaw_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse_yaw.png")
+
+        plt.figure(figsize=(8, 6))
+        plt.title(f"Yaw RMSE vs Número de Partículas\n{scenario}")
+        plt.xlabel("Número de Partículas")
+        plt.ylabel("RMSE Yaw (deg)")
+
+        for algo, results in avg_data.items():
+
+            particles = sorted(results.keys())
+            means = [
+                results[p]["yaw_mean"] for p in particles
+                if results[p]["yaw_mean"] is not None
+            ]
+
+            valid_particles = [
+                p for p in particles if results[p]["yaw_mean"] is not None
+            ]
+
+            if not means:
+                continue
+            
+            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+            plt.plot(
+                valid_particles,
+                means,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
+
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(yaw_plot_path, dpi=200)
+        plt.close()
+        print(f"Gráfico de Yaw salvo em: {yaw_plot_path}")
+
+        yaw_std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std_yaw.png")
+
+        plt.figure(figsize=(8, 6))
+        plt.title(f"Yaw RMSE Std Dev vs Número de Partículas\n{scenario}")
+        plt.xlabel("Número de Partículas")
+        plt.ylabel("RMSE Std Dev (deg)")
+
+        for algo, results in avg_data.items():
+
+            particles = sorted(results.keys())
+            stds = [
+                results[p]["yaw_std"] for p in particles
+                if results[p]["yaw_std"] is not None
+            ]
+
+            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+            plt.plot(
+                particles,
+                stds,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
+
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(yaw_std_plot_path, dpi=200)
+        plt.close()
+        print(f"Gráfico de Yaw Std Dev salvo em: {yaw_std_plot_path}")
 
     generate_html_report(data, plot_path, results_dir)
 
@@ -175,12 +261,19 @@ def generate_html_report(all_data, plots_dir, results_dir):
 
         html += f"<h2>Scenario: {scenario}</h2>"
 
-        plot_file = f"{scenario}_particle_sweep_rmse.png"
         rmse_plot = f"{scenario}_particle_sweep_rmse.png"
+        yaw_plot = f"{scenario}_particle_sweep_rmse_yaw.png"
         std_plot = f"{scenario}_particle_sweep_std.png"
+        std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
 
-        html += f'<img src="plots/{rmse_plot}"><br>'
-        html += f'<img src="plots/{std_plot}"><br>'
+        html += f"""
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+            <img src="plots/{rmse_plot}">
+            <img src="plots/{std_plot}">
+            <img src="plots/{yaw_plot}">
+            <img src="plots/{std_yaw_plot}">
+        </div>
+        """
 
         # collect particle counts
         particles = sorted({
@@ -204,10 +297,11 @@ def generate_html_report(all_data, plots_dir, results_dir):
 
             for algo in algorithms:
                 if p in scenario_data[algo]:
-                    rmses = scenario_data[algo][p]
-                    row_vals[algo] = np.mean(rmses)
+                    pos_vals = scenario_data[algo][p]["pos"]                    
+                    if pos_vals:
+                        row_vals[algo] = np.mean(pos_vals)
 
-            best_algo = min(row_vals, key=row_vals.get)
+            best_algo = min(row_vals, key=row_vals.get) if row_vals else None
 
             html += f"<tr><td>{p}</td>"
 
@@ -215,13 +309,35 @@ def generate_html_report(all_data, plots_dir, results_dir):
 
                 if p in scenario_data[algo]:
 
-                    rmses = scenario_data[algo][p]
-                    mean = np.mean(rmses)
-                    std = np.std(rmses)
+                    pos_vals = scenario_data[algo][p]["pos"]
+                    yaw_vals = scenario_data[algo][p]["yaw"]
+                    if pos_vals:
+                        pos_mean = np.mean(pos_vals)
+                        pos_std = np.std(pos_vals)
+                    else:
+                        pos_mean = None
+                        pos_std = None
 
-                    cls = "best" if algo == best_algo else ""
+                    if yaw_vals:
+                        yaw_mean = np.mean(np.degrees(yaw_vals))
+                        yaw_std = np.std(np.degrees(yaw_vals))
+                    else:
+                        yaw_mean = None
+                        yaw_std = None
 
-                    html += f'<td class="{cls}">{mean:.3f} ± {std:.3f}</td>'
+                    if pos_mean is not None and pos_std is not None:
+
+                        cls = "best" if algo == best_algo else ""
+
+                        html += f'<td class="{cls}">'
+                        html += f'{pos_mean:.3f} ± {pos_std:.3f} m<br>'
+                        if yaw_mean is not None:
+                            html += f'{yaw_mean:.2f} ± {yaw_std:.2f} °'
+                        html += '</td>'
+
+                    else:
+
+                        html += "<td>-</td>"
 
                 else:
                     html += "<td>-</td>"
