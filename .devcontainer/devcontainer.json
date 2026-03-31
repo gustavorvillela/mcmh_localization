@@ -1,0 +1,36 @@
+{
+  "name": "Metropolis-Hastings MCL (NVIDIA)",
+
+  "dockerComposeFile": [
+    "../deploy/docker-compose.yml"
+  ],
+
+  "service": "ros_noetic_dev",
+
+  "workspaceFolder": "/root/catkin_ws/src/mcmh_localization",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-iot.vscode-ros",
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.cmake-tools"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.analysis.extraPaths": [
+          "/opt/ros/noetic/lib/python3/site-packages",
+          "/root/catkin_ws/install/lib/python3/site-packages"
+        ],
+        "C_Cpp.default.compileCommands": "/root/catkin_ws/build/compile_commands.json"
+      }
+    }
+  },
+
+  "remoteUser": "root",
+
+  "postCreateCommand": "bash -c 'source /opt/ros/noetic/setup.bash && cd /root/catkin_ws && catkin_make'",
+
+}
