@@ -59,7 +59,7 @@ class AMCMHLocalizer:
         self.z_max = rospy.get_param('z_max', 0.05)  # Peso para a parte "max" (leituras no alcance máximo)
         self.lambda_short = rospy.get_param('lambda_short', 0.1)  # Lambda para a distribuição exponencial da parte "short"
         self.step = rospy.get_param('step', 1)  # Usar cada 'step' medidas do LiDAR para acelerar
-
+        self.headless = rospy.get_param('headless', False)  # Se True, não publica marcadores para visualização
         self.timeout = 10
 
         if self.initialized == True:
@@ -342,7 +342,8 @@ class AMCMHLocalizer:
             self.resample_lvr()
         
         #rospy.loginfo("Publicando partículas")
-        self.publish_particles()
+        if not self.headless:
+            self.publish_particles()
 
 
     def update_scans(self,scan):
@@ -552,9 +553,6 @@ class AMCMHLocalizer:
 
         weights = self.weights[:len(self.particles)]
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
-
-        cos_half_theta = np.cos(self.particles[:,2] / 2.0)
-        sin_half_theta = np.sin(self.particles[:,2] / 2.0)
         marker_id =0
         for p, w in zip(self.particles, norm_weights):
             if not self.is_valid_position(p[0], p[1]):

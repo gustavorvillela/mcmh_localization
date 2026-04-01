@@ -6,11 +6,26 @@
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
 MODES=("MCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 750 1000 1250 1500)  # valores de partículas a testar
+PARTICLE_COUNTS=(250 500 1000 1500)  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 REPEATS=2   # número de repetições por configuração
 mkdir -p "$RESULTS_DIR"
+echo "Cleaning previous results..."
+
+# Remove only generated result files (safe filter)
+find "$RESULTS_DIR" -type f \( \
+    -name "*.txt" -o \
+    -name "*.html" \
+\) -delete
+
+PLOTS_DIR="$RESULTS_DIR/plots"
+mkdir -p "$PLOTS_DIR"
+
+echo "Cleaning plot images..."
+
+find "$PLOTS_DIR" -type f -name "*.png" -delete
+
 export ROS_MASTER_URI=http://localhost:11311
 export ROS_HOSTNAME=localhost
 ############################################
@@ -92,4 +107,18 @@ done
 ############################################
 if [ ! -z "$ROSCORE_PID" ]; then
     kill $ROSCORE_PID
+fi
+
+# Gerar plots
+echo "Gerando plots..."
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep.py"
+
+if [ -f "$PLOT_SCRIPT" ]; then
+    python3 "$PLOT_SCRIPT"
+else
+    echo "Erro: script de plot não encontrado!"
 fi

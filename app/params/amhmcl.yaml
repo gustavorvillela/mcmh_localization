@@ -18,6 +18,7 @@
 localization_mode: "AMHAMCL"  
 initialized: False
 #init_particles: 1500
+headless: True  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
 #=======================================
 # Motion model parameters
