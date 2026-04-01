@@ -115,7 +115,7 @@ echo "Gerando plots..."
 source /opt/ros/noetic/setup.bash
 source ~/catkin_ws/devel/setup.bash
 
-PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep.py"
+PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep_results.py"
 
 if [ -f "$PLOT_SCRIPT" ]; then
     python3 "$PLOT_SCRIPT"
