@@ -5,23 +5,43 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
-MODES=("MCL" "MHMCL" "AMHMCL" "AMCL" "MHAMCL" "AMHAMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 1000 1500 2000 2500 3000)  # valores de partículas a testar
+MODES=("MCL")  # Pode ajustar conforme quiser
+PARTICLE_COUNTS=(250 500 1000 1500)  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=20   # número de repetições por configuração
+REPEATS=2   # número de repetições por configuração
 mkdir -p "$RESULTS_DIR"
+echo "Cleaning previous results..."
 
+# Remove only generated result files (safe filter)
+find "$RESULTS_DIR" -type f \( \
+    -name "*.txt" -o \
+    -name "*.html" \
+\) -delete
+
+PLOTS_DIR="$RESULTS_DIR/plots"
+mkdir -p "$PLOTS_DIR"
+
+echo "Cleaning plot images..."
+
+find "$PLOTS_DIR" -type f -name "*.png" -delete
+
+export ROS_MASTER_URI=http://localhost:11311
+export ROS_HOSTNAME=localhost
 ############################################
 # Start roscore if it is not already running
 ############################################
-if ! rostopic list >/dev/null 2>&1; then
+if ! pgrep -f roscore > /dev/null; then
     echo "Starting roscore..."
     roscore &
     ROSCORE_PID=$!
-    sleep 3
 fi
 
+echo "Waiting for roscore..."
+until rostopic list >/dev/null 2>&1; do
+    sleep 1
+done
+echo "roscore is ready!"
 # Determina origem dos bags
 if [ $# -eq 0 ]; then
     BAGS=("$DEFAULT_BAG_DIR"/*.bag)
@@ -87,4 +107,18 @@ done
 ############################################
 if [ ! -z "$ROSCORE_PID" ]; then
     kill $ROSCORE_PID
+fi
+
+# Gerar plots
+echo "Gerando plots..."
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep_results.py"
+
+if [ -f "$PLOT_SCRIPT" ]; then
+    python3 "$PLOT_SCRIPT"
+else
+    echo "Erro: script de plot não encontrado!"
 fi

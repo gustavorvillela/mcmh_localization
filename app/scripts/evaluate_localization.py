@@ -32,15 +32,22 @@ class Evaluator:
         
         self.poses_file = os.path.join(pose_dir, f"poses_{result_name}.txt")
 
-        self.gt_pose = None
-        self.est_pose = None  # Nova variável para armazenar pose estimada
-        self.errors = []
-        self.timestamps = []
+        self.gt_pose  = None
+        self.est_pose = None  # variável para armazenar pose estimada
+        self.errors        = []
+        self.yaw_errors    = []
+        self.timestamps    = []
         self.error_history = []
-        self.pose_history = []  # Novo: armazena histórico completo de poses
+        self.pose_history  = []  # Novo: armazena histórico completo de poses
 
         rospy.Subscriber(self.est_topic, PoseWithCovarianceStamped, self.estimated_callback)
         rospy.Subscriber(self.gt_topic, ModelStates, self.gt_callback)
+
+
+    def angle_diff(self, a, b):
+        """Calcula a diferença angular entre dois ângulos (em radianos)"""
+        d = a - b
+        return np.arctan2(np.sin(d), np.cos(d))
 
     def estimated_callback(self, msg):
         if self.gt_pose is None:
@@ -62,13 +69,14 @@ class Evaluator:
         # Calcula erro de orientação (yaw)
         gt_yaw = self.get_yaw_from_pose(self.gt_pose)
         est_yaw = self.get_yaw_from_pose(self.est_pose)
-        yaw_error = abs(gt_yaw - est_yaw)
+        yaw_error = abs(self.angle_diff(est_yaw, gt_yaw))
         
         # Armazena dados
         elapsed_time = (rospy.Time.now() - self.eval_start_time).to_sec()
         self.timestamps.append(elapsed_time)
         self.errors.append(pos_error)
         self.error_history.append((elapsed_time, pos_error))
+        self.yaw_errors.append(yaw_error)
         
         # Novo: armazena poses completas
         self.pose_history.append((
@@ -115,15 +123,17 @@ class Evaluator:
             rospy.logwarn("Nenhum erro registrado. Verifique os topicos.")
             return
             
-        rmse = np.sqrt(np.mean(np.square(self.errors)))
+        rmse_pos = np.sqrt(np.mean(np.square(self.errors)))
+        rmse_yaw = np.sqrt(np.mean(np.square(self.yaw_errors)))
         
         # --- Salva erros detalhados dessa execução ---
         with open(self.output_file, "w") as f:
-            f.write("time,error\n")
+            f.write("time,error_pose,error_yaw\n")
             for timestamp, error in self.error_history:
-                f.write(f"{timestamp:.3f},{error:.4f}\n")
-            f.write(f"\nRMSE final: {rmse:.4f}\n")
-        
+                f.write(f"{timestamp:.3f},{error:.4f},{rmse_yaw:.4f}\n")
+            f.write(f"\nRMSE position: {rmse_pos:.4f}\n")
+            f.write(f"RMSE yaw (rad): {rmse_yaw:.4f}\n")
+
         with open(self.poses_file, "w") as f:
             f.write("time,est_x,est_y,est_yaw,gt_x,gt_y,gt_yaw\n")
             for data in self.pose_history:
@@ -133,12 +143,13 @@ class Evaluator:
         # --- NOVO: salva RMSE em um arquivo acumulado ---
         summary_file = os.path.join(os.path.dirname(__file__), "../results/summary_results.txt")
         with open(summary_file, "a") as f:
-            f.write(f"{os.path.basename(self.output_file)},{rmse:.4f}\n")
+            f.write(f"{os.path.basename(self.output_file)},{rmse_pos:.4f},{rmse_yaw:.4f}\n")
 
         rospy.loginfo(f"Resultados salvos:")
         rospy.loginfo(f"- Dados de erro: {self.output_file}")
         rospy.loginfo(f"- Dados de poses: {self.poses_file}")
-        rospy.loginfo(f"RMSE final: {rmse:.4f}")
+        rospy.loginfo(f"RMSE position: {rmse_pos:.4f}")
+        rospy.loginfo(f"RMSE yaw (rad): {rmse_yaw:.4f}")
 
 
 
