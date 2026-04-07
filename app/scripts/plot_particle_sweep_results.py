@@ -45,7 +45,39 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
+def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
+
+    plt.figure(figsize=(8, 6))
+    plt.title(f"Pose RMSE vs Número de Partículas\n{scenario}")
+    plt.xlabel("Número de Partículas")
+    ylabel = "Position RMSE (m)" if test == "pos" else "Yaw RMSE (deg)"
+    plt.ylabel(ylabel)
+
+    for algo, results in data.items():
+
+        particles = sorted(results.keys())
+        stats = [results[p][f"{test}_{stat}"] for p in particles]
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.plot(
+            particles,
+            stats,
+            label=style['label'],
+            color=style['color'],
+            linestyle=style['linestyle'],
+            marker=style['marker'],
+            linewidth=2
+        )
+
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"Gráfico salvo em: {plot_path}")
+
 def main():
+
     results_dir = os.path.join(os.path.dirname(__file__), '../results')
     plots_dir = os.path.join(results_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
@@ -55,6 +87,7 @@ def main():
         "yaw": []
     })))
 
+    # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
     for filename in os.listdir(results_dir):
         if filename.endswith(".txt") and not filename.startswith("poses_"):
             algo = extract_algorithm(filename)
@@ -94,146 +127,21 @@ def main():
                 for p in sorted(p_dict.keys())
             }
 
-        plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
+        pos_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
+        plot_rmse(avg_data, scenario, pos_mean_plot_path, test="pos", stat="mean", styles=styles)
 
-        plt.figure(figsize=(8, 6))
-        plt.title(f"Pose RMSE vs Número de Partículas\n{scenario}")
-        plt.xlabel("Número de Partículas")
-        plt.ylabel("RMSE (m)")
+        pos_std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std.png")
+        plot_rmse(avg_data, scenario, pos_std_plot_path, test="pos", stat="std", styles=styles)
 
-        for algo, results in avg_data.items():
-
-            particles = sorted(results.keys())
-            means = [results[p]["pos_mean"] for p in particles]
-            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
-
-            plt.plot(
-                particles,
-                means,
-                label=style['label'],
-                color=style['color'],
-                linestyle=style['linestyle'],
-                marker=style['marker'],
-                linewidth=2
-            )
-
-        plt.grid(True, linestyle='--', alpha=0.4)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=200)
-        plt.close()
-
-        print(f"Gráfico salvo em: {plot_path}")
-
-        std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std.png")
-
-        plt.figure(figsize=(8,6))
-        plt.title(f"Pose Std Dev vs Número de Partículas\n{scenario}")
-        plt.xlabel("Número de Partículas")
-        plt.ylabel("RMSE Std Dev (m)")
-
-        for algo, p_dict in scenario_data.items():
-
-            particles = sorted(p_dict.keys())
-
-            stds = [results[p]["pos_std"] for p in particles]
-
-            style = styles.get(algo, {'color':'#666','linestyle':'-','marker':'o','label':algo})
-
-            plt.plot(
-                particles,
-                stds,
-                label=style['label'],
-                color=style['color'],
-                linestyle=style['linestyle'],
-                marker=style['marker'],
-                linewidth=2
-            )
-
-        plt.grid(True, linestyle='--', alpha=0.4)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(std_plot_path, dpi=200)
-        plt.close()
-
-        yaw_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse_yaw.png")
-
-        plt.figure(figsize=(8, 6))
-        plt.title(f"Yaw RMSE vs Número de Partículas\n{scenario}")
-        plt.xlabel("Número de Partículas")
-        plt.ylabel("RMSE Yaw (deg)")
-
-        for algo, results in avg_data.items():
-
-            particles = sorted(results.keys())
-            means = [
-                results[p]["yaw_mean"] for p in particles
-                if results[p]["yaw_mean"] is not None
-            ]
-
-            valid_particles = [
-                p for p in particles if results[p]["yaw_mean"] is not None
-            ]
-
-            if not means:
-                continue
-            
-            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
-
-            plt.plot(
-                valid_particles,
-                means,
-                label=style['label'],
-                color=style['color'],
-                linestyle=style['linestyle'],
-                marker=style['marker'],
-                linewidth=2
-            )
-
-        plt.grid(True, linestyle='--', alpha=0.4)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(yaw_plot_path, dpi=200)
-        plt.close()
-        print(f"Gráfico de Yaw salvo em: {yaw_plot_path}")
+        yaw_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse_yaw.png")
+        plot_rmse(avg_data, scenario, yaw_mean_plot_path, test="yaw", stat="mean", styles=styles)
 
         yaw_std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std_yaw.png")
+        plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
+        
+    generate_html_report(data, plots_dir, True)
 
-        plt.figure(figsize=(8, 6))
-        plt.title(f"Yaw RMSE Std Dev vs Número de Partículas\n{scenario}")
-        plt.xlabel("Número de Partículas")
-        plt.ylabel("RMSE Std Dev (deg)")
-
-        for algo, results in avg_data.items():
-
-            particles = sorted(results.keys())
-            stds = [
-                results[p]["yaw_std"] for p in particles
-                if results[p]["yaw_std"] is not None
-            ]
-
-            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
-
-            plt.plot(
-                particles,
-                stds,
-                label=style['label'],
-                color=style['color'],
-                linestyle=style['linestyle'],
-                marker=style['marker'],
-                linewidth=2
-            )
-
-        plt.grid(True, linestyle='--', alpha=0.4)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(yaw_std_plot_path, dpi=200)
-        plt.close()
-        print(f"Gráfico de Yaw Std Dev salvo em: {yaw_std_plot_path}")
-
-    generate_html_report(data, plot_path, results_dir)
-
-def generate_html_report(all_data, plots_dir, results_dir):
+def generate_html_report(all_data, results_dir, same_dir=False):
 
     html_path = os.path.join(results_dir, 'particle_sweep_report.html')
 
@@ -266,14 +174,27 @@ def generate_html_report(all_data, plots_dir, results_dir):
         std_plot = f"{scenario}_particle_sweep_std.png"
         std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
 
-        html += f"""
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-            <img src="plots/{rmse_plot}">
-            <img src="plots/{std_plot}">
-            <img src="plots/{yaw_plot}">
-            <img src="plots/{std_yaw_plot}">
-        </div>
-        """
+        if not same_dir:
+            plots_dir = "plots"
+
+            html += f"""
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <img src="{plots_dir}/{rmse_plot}">
+                <img src="{plots_dir}/{std_plot}">
+                <img src="{plots_dir}/{yaw_plot}">
+                <img src="{plots_dir}/{std_yaw_plot}">
+            </div>
+            """
+
+        else:
+            html += f"""
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <img src="{rmse_plot}">
+                <img src="{std_plot}">
+                <img src="{yaw_plot}">
+                <img src="{std_yaw_plot}">
+            </div>
+            """
 
         # collect particle counts
         particles = sorted({
