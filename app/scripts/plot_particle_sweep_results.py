@@ -19,6 +19,9 @@ def extract_algorithm(filename):
 def extract_scenario(filename):
     name = filename.replace(".txt", "")
 
+    # remove poses_ prefix if present
+    name = name.replace("poses_", "")
+
     # remove particle specification
     name = re.sub(r'_\d+p_', '_', name)
 
@@ -30,6 +33,7 @@ def extract_scenario(filename):
     name = re.sub(r'_run\d+', '', name)
 
     return name.strip("_")
+
 
 def extract_rmse(filepath):
     rmse_pos = None
@@ -48,9 +52,14 @@ def extract_rmse(filepath):
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
     plt.figure(figsize=(8, 6))
-    plt.title(f"Pose RMSE vs Número de Partículas\n{scenario}")
+    if test == "pos":
+        ylabel = "Position RMSE (m)"
+        title = f"Pose RMSE vs Número de Partículas - {scenario}"
+    else:
+        ylabel = "Yaw RMSE (deg)"
+        title = f"Yaw RMSE vs Número de Partículas - {scenario}"
+    plt.title(title)
     plt.xlabel("Número de Partículas")
-    ylabel = "Position RMSE (m)" if test == "pos" else "Yaw RMSE (deg)"
     plt.ylabel(ylabel)
 
     for algo, results in data.items():
@@ -76,6 +85,129 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     plt.close()
     print(f"Gráfico salvo em: {plot_path}")
 
+def load_trajectory(filepath):
+    est = []
+    gt = []
+    try:
+        with open(filepath, 'r') as f:
+            next(f)  # skip header
+
+            for line in f:
+                parts = line.strip().split(',')
+
+                if len(parts) < 7:
+                    continue
+
+                est_x = float(parts[1])
+                est_y = float(parts[2])
+                gt_x = float(parts[4])
+                gt_y = float(parts[5])
+
+                est.append((est_x, est_y))
+                gt.append((gt_x, gt_y))
+
+    except Exception as e:
+        print(f"Erro lendo trajetória {filepath}: {e}")
+
+    return np.array(est), np.array(gt)
+
+def load_trajectory(filepath):
+    est = []
+    gt = []
+    try:
+        with open(filepath, 'r') as f:
+            next(f)  # skip header
+
+            for line in f:
+                parts = line.strip().split(',')
+
+                if len(parts) < 7:
+                    continue
+
+                est_x = float(parts[1])
+                est_y = float(parts[2])
+                gt_x = float(parts[4])
+                gt_y = float(parts[5])
+
+                est.append((est_x, est_y))
+                gt.append((gt_x, gt_y))
+
+    except Exception as e:
+        print(f"Erro lendo trajetória {filepath}: {e}")
+
+    return np.array(est), np.array(gt)
+
+def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styles=None):
+
+    algo, particles = best_combo
+    key = (scenario, algo, particles)
+
+    if key not in trajectories:
+        print(f"Trajetória não encontrada para {key}")
+        return
+
+    est = trajectories[key]["est"]
+    gt = trajectories[key]["gt"]
+
+    style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}) if styles else {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}
+
+    plt.figure(figsize=(8, 6))
+
+    # Ground truth
+    plt.plot(
+        gt[:, 0], gt[:, 1],
+        linestyle='--',
+        linewidth=2,
+        color="#C00F0F",
+        label='Ground Truth'
+    )
+
+    # Estimated path
+    plt.plot(
+        est[:, 0], est[:, 1],
+        linewidth=2,
+        label=f'{algo} ({particles}p)',
+        color=style['color'],
+        linestyle=style['linestyle']
+    )
+
+    # Start/end markers
+    plt.scatter(gt[0, 0], gt[0, 1], marker='o', label='Start')
+    plt.scatter(gt[-1, 0], gt[-1, 1], marker='x', label='End')
+
+    plt.title(f"Best Path - {scenario}")
+    plt.xlabel("X (m)")
+    plt.ylabel("Y (m)")
+    plt.axis("equal")
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+
+    
+    plt.tight_layout()
+    plt.savefig(best_path, dpi=200)
+    plt.close()
+
+    error = np.linalg.norm(est - gt, axis=1)
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(error,
+             label=f'{algo} ({particles}p)',
+             color=style['color'],
+             linestyle=style['linestyle'])
+    plt.legend()
+    plt.title(f"Absolute Trajectory Error Over Time - {scenario}")
+    plt.xlabel("Timestep")
+    plt.ylabel("Position ATE (m)")
+    plt.grid(True, linestyle='--', alpha=0.4)
+
+
+    plt.tight_layout()
+    plt.savefig(ate_path, dpi=200)
+    plt.close()
+
+    print(f"Best path plot salvo em: {best_path}")
+
+
 def main():
 
     results_dir = os.path.join(os.path.dirname(__file__), '../results')
@@ -86,6 +218,8 @@ def main():
         "pos": [],
         "yaw": []
     })))
+
+    trajectories = {}
 
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
     for filename in os.listdir(results_dir):
@@ -100,12 +234,27 @@ def main():
                     data[scenario][algo][particles]["yaw"].append(rmse_yaw)
                     print(f"{filename}: {scenario} | {algo} | {particles}p → RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}")
 
+        elif filename.endswith(".txt") and filename.startswith("poses_"):
+            algo = extract_algorithm(filename)
+            particles = extract_particles(filename)
+            scenario = extract_scenario(filename)
+
+            if algo and particles:
+                path = os.path.join(results_dir, filename)
+                est, gt = load_trajectory(path)
+                if est.size > 0:
+                    trajectories[(scenario, algo, particles)] = {
+                        "est": est,
+                        "gt": gt
+                    }
+                    print(f"Trajetória carregada: {filename} | {scenario} | {algo} | {particles}p")
+
     if not data:
         print("Nenhum dado válido encontrado.")
         return
 
     styles = {
-        'MCL': {'color': '#000000', 'linestyle': '-', 'marker': 'o', 'label': 'MCL'},
+        'MCL': {'color': "#6C747461", 'linestyle': '-', 'marker': 'o', 'label': 'MCL'},
         'AMCL': {'color': '#1f77b4', 'linestyle': ':', 'marker': 'o', 'label': 'AMCL'},
         'MHMCL': {'color': '#ff7f0e', 'linestyle': '--', 'marker': 'o', 'label': 'MHMCL'},
         'MHAMCL': {'color': '#2ca02c', 'linestyle': '-.', 'marker': 'o', 'label': 'MHAMCL'},
@@ -138,6 +287,28 @@ def main():
 
         yaw_std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std_yaw.png")
         plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
+
+        # --- Find best (lowest RMSE position) ---
+        best_combo = None
+        best_rmse = float("inf")
+
+        for algo, p_dict in avg_data.items():
+            for p, stats in p_dict.items():
+                if stats["pos_mean"] < best_rmse:
+                    best_rmse = stats["pos_mean"]
+                    best_combo = (algo, p)
+
+        # --- Define output paths ---
+        best_path = os.path.join(plots_dir, f"{scenario}_best_path.png")
+        ate_path = os.path.join(plots_dir, f"{scenario}_ate_curve.png")
+
+        # --- Call plotting ---
+        if best_combo:
+            print(f"Best config for {scenario}: {best_combo} (RMSE={best_rmse:.4f})")
+            plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styles)
+        else:
+            print(f"Nenhuma configuração válida para {scenario}")
+        
         
     generate_html_report(data, plots_dir, True)
 
@@ -174,25 +345,32 @@ def generate_html_report(all_data, results_dir, same_dir=False):
         std_plot = f"{scenario}_particle_sweep_std.png"
         std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
 
+        best_path_plot = f"{scenario}_best_path.png"
+        ate_curve_plot = f"{scenario}_ate_curve.png"
+
         if not same_dir:
             plots_dir = "plots"
 
             html += f"""
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px;">
                 <img src="{plots_dir}/{rmse_plot}">
                 <img src="{plots_dir}/{std_plot}">
+                <img src="{plots_dir}/{ate_curve_plot}">
                 <img src="{plots_dir}/{yaw_plot}">
                 <img src="{plots_dir}/{std_yaw_plot}">
+                <img src="{plots_dir}/{best_path_plot}">
             </div>
             """
 
         else:
             html += f"""
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px;">
                 <img src="{rmse_plot}">
                 <img src="{std_plot}">
+                <img src="{ate_curve_plot}">
                 <img src="{yaw_plot}">
                 <img src="{std_yaw_plot}">
+                <img src="{best_path_plot}">
             </div>
             """
 
