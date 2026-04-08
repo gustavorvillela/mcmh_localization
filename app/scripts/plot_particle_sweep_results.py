@@ -126,11 +126,13 @@ def load_trajectory(filepath):
 
                 est_x = float(parts[1])
                 est_y = float(parts[2])
+                est_yaw = float(parts[3])
                 gt_x = float(parts[4])
                 gt_y = float(parts[5])
+                gt_yaw = float(parts[6])
 
-                est.append((est_x, est_y))
-                gt.append((gt_x, gt_y))
+                est.append((est_x, est_y, est_yaw))
+                gt.append((gt_x, gt_y, gt_yaw))
 
     except Exception as e:
         print(f"Erro lendo trajetória {filepath}: {e}")
@@ -148,6 +150,8 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
 
     est = trajectories[key]["est"]
     gt = trajectories[key]["gt"]
+    x_gt, y_gt, yaw_gt = gt[:, 0], gt[:, 1], gt[:, 2]
+    x_est, y_est, yaw_est = est[:, 0], est[:, 1], est[:, 2]
 
     style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}) if styles else {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}
 
@@ -155,7 +159,7 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
 
     # Ground truth
     plt.plot(
-        gt[:, 0], gt[:, 1],
+        x_gt, y_gt,
         linestyle='--',
         linewidth=2,
         color="#C00F0F",
@@ -164,7 +168,7 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
 
     # Estimated path
     plt.plot(
-        est[:, 0], est[:, 1],
+        x_est, y_est,
         linewidth=2,
         label=f'{algo} ({particles}p)',
         color=style['color'],
@@ -172,8 +176,8 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
     )
 
     # Start/end markers
-    plt.scatter(gt[0, 0], gt[0, 1], marker='o', label='Start')
-    plt.scatter(gt[-1, 0], gt[-1, 1], marker='x', label='End')
+    plt.scatter(x_gt[0], y_gt[0], marker='o', label='Start')
+    plt.scatter(x_gt[-1], y_gt[-1], marker='x', label='End')
 
     plt.title(f"Best Path - {scenario}")
     plt.xlabel("X (m)")
@@ -181,16 +185,28 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
     plt.axis("equal")
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
-
-    
     plt.tight_layout()
     plt.savefig(best_path, dpi=200)
     plt.close()
 
+    #Plot angle comparison
+    plt.figure(figsize=(8, 6))
+    plt.plot(yaw_gt, label='Ground Truth Yaw', linestyle='--', color="#C00F0F")
+    plt.plot(yaw_est, label=f'{algo} Yaw', linestyle=style['linestyle'], color=style['color'])
+    plt.title(f"Best Yaw - {scenario}")
+    plt.xlabel("Timestep")
+    plt.ylabel("Yaw (rad)")
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(best_path.replace(".png", "_yaw.png"), dpi=200)
+    plt.close()
+
+    #Plot and compute ATE curve
     error = np.linalg.norm(est - gt, axis=1)
 
     plt.figure(figsize=(8, 6))
-    plt.plot(error,
+    plt.semilogy(error,
              label=f'{algo} ({particles}p)',
              color=style['color'],
              linestyle=style['linestyle'])
@@ -347,6 +363,7 @@ def generate_html_report(all_data, results_dir, same_dir=False):
 
         best_path_plot = f"{scenario}_best_path.png"
         ate_curve_plot = f"{scenario}_ate_curve.png"
+        best_path_yaw_plot = f"{scenario}_best_path_yaw.png"
 
         if not same_dir:
             plots_dir = "plots"
@@ -359,6 +376,7 @@ def generate_html_report(all_data, results_dir, same_dir=False):
                 <img src="{plots_dir}/{yaw_plot}">
                 <img src="{plots_dir}/{std_yaw_plot}">
                 <img src="{plots_dir}/{best_path_plot}">
+                <img src="{plots_dir}/{best_path_yaw_plot}">
             </div>
             """
 
@@ -371,6 +389,7 @@ def generate_html_report(all_data, results_dir, same_dir=False):
                 <img src="{yaw_plot}">
                 <img src="{std_yaw_plot}">
                 <img src="{best_path_plot}">
+                <img src="{best_path_yaw_plot}">
             </div>
             """
 

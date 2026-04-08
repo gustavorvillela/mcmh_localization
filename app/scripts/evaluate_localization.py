@@ -6,6 +6,7 @@ from gazebo_msgs.msg import ModelStates
 import os
 import time
 from tf.transformations import euler_from_quaternion
+from parallel_utils import normalize_angle
 
 class Evaluator:
     def __init__(self):
@@ -46,8 +47,8 @@ class Evaluator:
 
     def angle_diff(self, a, b):
         """Calcula a diferença angular entre dois ângulos (em radianos)"""
-        d = a - b
-        return np.arctan2(np.sin(d), np.cos(d))
+        d = normalize_angle(a) - normalize_angle(b)
+        return d
 
     def estimated_callback(self, msg):
         if self.gt_pose is None:
@@ -57,7 +58,6 @@ class Evaluator:
             self.eval_start_time = rospy.Time.now()
             
         est_position = msg.pose.pose.position
-        est_orientation = msg.pose.pose.orientation
         self.est_pose = msg.pose.pose  # Armazena a pose estimada completa
         
         # Calcula erro de posição
