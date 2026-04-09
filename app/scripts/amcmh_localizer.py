@@ -10,7 +10,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, generate_valid_particles_exact, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
 
 class AMCMHLocalizer:
     def __init__(self):
@@ -29,7 +29,9 @@ class AMCMHLocalizer:
                                 rospy.get_param('alpha1', 0.2),
                                 rospy.get_param('alpha2', 0.2),
                                 rospy.get_param('alpha3', 0.2),
-                                rospy.get_param('alpha4', 0.2)
+                                rospy.get_param('alpha4', 0.2),
+                                rospy.get_param('alpha5', 0.2),
+                                rospy.get_param('alpha6', 0.2)
                             ], dtype=np.float32) #do not touch
         self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # taxa de aprendizado lenta
         self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # taxa de aprendizado rápida
@@ -188,7 +190,7 @@ class AMCMHLocalizer:
             
         else:
             #rospy.loginfo("Inicializando partículas uniformemente no mapa")
-            final_particles = generate_valid_particles(self.num_particles,
+            final_particles = generate_valid_particles_exact(self.num_particles,
                                              self.map_data, self.resolution,
                                              self.origin_np[0], self.origin_np[1], self.width, self.height)
 
@@ -290,6 +292,14 @@ class AMCMHLocalizer:
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
 
+    def enforce_particle_weight_consistency(self):
+        Np = len(self.particles)
+        Nw = len(self.weights)
+
+        if Np != Nw:
+            rospy.logwarn(f"[FIX] particles={Np}, weights={Nw} → resetting weights")
+            self.weights = np.full(Np, 1.0 / Np)
+
 
     #======================================================================
     # LiDAR
@@ -331,7 +341,7 @@ class AMCMHLocalizer:
         #rospy.loginfo("Publicando pose estimada")
         #rospy.loginfo(f"Weight std: {np.std(self.weights):.6f} | w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | Num Particles: {len(self.particles)}")
         #rospy.loginfo(f"Max weight: {np.max(self.weights):.6f}")
-        self.publish_estimate()
+        
         
         if self.use_adaptive:
 
@@ -342,6 +352,7 @@ class AMCMHLocalizer:
             self.resample_lvr()
         
         #rospy.loginfo("Publicando partículas")
+        self.publish_estimate()
         if not self.headless:
             self.publish_particles()
 
@@ -359,11 +370,16 @@ class AMCMHLocalizer:
     def convert_scores(self,scores):
 
         max_score = np.max(scores)
-        weights = np.zeros_like(scores)
-        weights = np.exp(scores)  # Subtrai o máximo para estabilidade numérica
-        weights =  weights/np.sum(weights)
 
-        return weights
+        weights = np.exp(scores - max_score)  # numerical stability
+        sum_w = np.sum(weights)
+
+        if sum_w == 0 or not np.isfinite(sum_w):
+            rospy.logwarn("Weight collapse detected! Resetting weights.")
+            N = len(weights)
+            return np.full(N, 1.0 / N)
+
+        return weights / sum_w
 
     def update_particles_mh(self,weights_pre, weights_post):
 
@@ -376,6 +392,7 @@ class AMCMHLocalizer:
 
 
         self.particles = mh_particles
+        self.enforce_particle_weight_consistency()
         
         return weights
 
@@ -459,11 +476,14 @@ class AMCMHLocalizer:
 
         resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
 
-        random_particles = generate_valid_particles(N_random,self.map_data,
+        random_particles = generate_valid_particles_exact(N_random,self.map_data,
                                                     self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
         
         self.particles = np.vstack((resampled_particles,random_particles))
-        self.weights   = np.full(N,1/N)
+        self.num_particles = len(self.particles)
+        self.weights = np.full(self.num_particles, 1.0 / self.num_particles)
+
+        self.enforce_particle_weight_consistency()
 
     def resample_amcl_lvr(self):
 
@@ -477,7 +497,7 @@ class AMCMHLocalizer:
 
         for i in range(N):
             if np.random.rand() < p_random:
-                resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
+                resampled_particles[i,:] = generate_valid_particles_exact(1,self.map_data,
                                                     self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
             else:
@@ -521,12 +541,14 @@ class AMCMHLocalizer:
         )
 
 
-        random_particles = generate_valid_particles(N_random,self.map_data,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
+        random_particles = generate_valid_particles_exact(N_random,self.map_data,
+                                                    self.resolution,self.origin_np[0],
+                                                    self.origin_np[1],self.width,
+                                                    self.height)
 
         # Junta
-        self.num_particles = len(self.particles)
         self.particles = np.vstack((random_particles, resampled_particles))
+        self.num_particles = len(self.particles)
         self.weights   = np.full(len(self.particles), 1.0 / len(self.particles))
 
         if len(self.particles) != N:
@@ -589,6 +611,12 @@ class AMCMHLocalizer:
     
     def publish_estimate(self):
 
+        self.enforce_particle_weight_consistency()
+
+        if len(self.particles) != len(self.weights):
+            rospy.logwarn(f"Mismatch particles/weights: {len(self.particles)} vs {len(self.weights)}. Fixing...")
+            N = len(self.particles)
+            self.weights = np.full(N, 1.0 / N)
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
         cos_mean = np.sum(np.cos(self.particles[:,2]) * self.weights)
         sin_mean = np.sum(np.sin(self.particles[:,2]) * self.weights)

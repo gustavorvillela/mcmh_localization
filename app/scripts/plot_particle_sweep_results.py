@@ -52,12 +52,12 @@ def extract_rmse(filepath):
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
     plt.figure(figsize=(8, 6))
-    if test == "pos":
-        ylabel = "Position RMSE (m)"
-        title = f"Pose RMSE vs Número de Partículas - {scenario}"
-    else:
-        ylabel = "Yaw RMSE (deg)"
-        title = f"Yaw RMSE vs Número de Partículas - {scenario}"
+    path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
+    stat_type = "Mean" if stat == "mean" else "Std Dev"
+     
+    ylabel = f"{path_type} - {stat_type} {measure}"
+    title = f"{path_type} RMSE {stat_type} vs Número de Partículas - {scenario}"
+
     plt.title(title)
     plt.xlabel("Número de Partículas")
     plt.ylabel(ylabel)
@@ -84,6 +84,31 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"Gráfico salvo em: {plot_path}")
+
+def calculate_yaw_rmse(est, gt):
+    
+    if est.shape[0] != gt.shape[0]:
+        print("Warning: Estimation and ground truth have different lengths for yaw RMSE calculation.")
+        min_len = min(est.shape[0], gt.shape[0])
+        est = est[:min_len]
+        gt = gt[:min_len]
+
+    yaw_diff = np.arctan2(np.sin(est[:, 2] - gt[:, 2]), np.cos(est[:, 2] - gt[:, 2]))
+    rmse_yaw = np.sqrt(np.mean(yaw_diff**2))
+    print(f"Calculated Yaw RMSE:{rmse_yaw:.2f} degrees")
+    return rmse_yaw
+
+def calculate_path_rmse(est, gt):
+    if est.shape[0] != gt.shape[0]:
+        print("Warning: Estimation and ground truth have different lengths for path RMSE calculation.")
+        min_len = min(est.shape[0], gt.shape[0])
+        est = est[:min_len]
+        gt = gt[:min_len]
+
+    error = np.linalg.norm(est[:, :2] - gt[:, :2], axis=1)
+    rmse_pos = np.sqrt(np.mean(error**2))
+    print(f"Calculated Path RMSE: {rmse_pos:.4f} m")
+    return rmse_pos
 
 def load_trajectory(filepath):
     est = []
@@ -139,6 +164,22 @@ def load_trajectory(filepath):
 
     return np.array(est), np.array(gt)
 
+def unpack_best(data):
+
+    # --- Find best (lowest RMSE position) ---
+    best_combo = None
+    best_rmse = float("inf")
+
+    for algo, p_dict in data.items():
+        for p, stats in p_dict.items():
+            if stats["pos_mean"] < best_rmse:
+                best_rmse = stats["pos_mean"]
+                best_combo = (algo, p)
+
+    return best_combo, best_rmse
+
+
+
 def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styles=None):
 
     algo, particles = best_combo
@@ -150,8 +191,11 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
 
     est = trajectories[key]["est"]
     gt = trajectories[key]["gt"]
-    x_gt, y_gt, yaw_gt = gt[:, 0], gt[:, 1], gt[:, 2]
-    x_est, y_est, yaw_est = est[:, 0], est[:, 1], est[:, 2]
+    x_gt, y_gt, yaw_gt = gt[:, 0], gt[:, 1], np.degrees(gt[:, 2])
+    x_est, y_est, yaw_est = est[:, 0], est[:, 1], np.degrees(est[:, 2])
+
+    calculate_yaw_rmse(est, gt)
+    calculate_path_rmse(est, gt)
 
     style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}) if styles else {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}
 
@@ -192,7 +236,7 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
     #Plot angle comparison
     plt.figure(figsize=(8, 6))
     plt.plot(yaw_gt, label='Ground Truth Yaw', linestyle='--', color="#C00F0F")
-    plt.plot(yaw_est, label=f'{algo} Yaw', linestyle=style['linestyle'], color=style['color'])
+    plt.plot(yaw_est, label=f'{algo} ({particles}p)', linestyle=style['linestyle'], color=style['color'])
     plt.title(f"Best Yaw - {scenario}")
     plt.xlabel("Timestep")
     plt.ylabel("Yaw (rad)")
@@ -247,7 +291,7 @@ def main():
                 rmse_pos, rmse_yaw = extract_rmse(os.path.join(results_dir, filename))
                 if (rmse_pos is not None) and (rmse_yaw is not None):
                     data[scenario][algo][particles]["pos"].append(rmse_pos)
-                    data[scenario][algo][particles]["yaw"].append(rmse_yaw)
+                    data[scenario][algo][particles]["yaw"].append(np.degrees(rmse_yaw))
                     print(f"{filename}: {scenario} | {algo} | {particles}p → RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}")
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
@@ -286,12 +330,13 @@ def main():
                 p: {
                     "pos_mean": np.mean(p_dict[p]["pos"]),
                     "pos_std": np.std(p_dict[p]["pos"]),
-                    "yaw_mean": np.mean(np.degrees(p_dict[p]["yaw"])) if p_dict[p]["yaw"] else None,
-                    "yaw_std": np.std(np.degrees(p_dict[p]["yaw"])) if p_dict[p]["yaw"] else None,
+                    "yaw_mean": np.mean(p_dict[p]["yaw"]) if p_dict[p]["yaw"] else None,
+                    "yaw_std": np.std(p_dict[p]["yaw"]) if p_dict[p]["yaw"] else None,
                 }
                 for p in sorted(p_dict.keys())
             }
 
+        # --- Plot everything for this scenario 
         pos_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
         plot_rmse(avg_data, scenario, pos_mean_plot_path, test="pos", stat="mean", styles=styles)
 
@@ -305,14 +350,7 @@ def main():
         plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
 
         # --- Find best (lowest RMSE position) ---
-        best_combo = None
-        best_rmse = float("inf")
-
-        for algo, p_dict in avg_data.items():
-            for p, stats in p_dict.items():
-                if stats["pos_mean"] < best_rmse:
-                    best_rmse = stats["pos_mean"]
-                    best_combo = (algo, p)
+        best_combo, best_rmse = unpack_best(avg_data)
 
         # --- Define output paths ---
         best_path = os.path.join(plots_dir, f"{scenario}_best_path.png")
@@ -320,7 +358,7 @@ def main():
 
         # --- Call plotting ---
         if best_combo:
-            print(f"Best config for {scenario}: {best_combo} (RMSE={best_rmse:.4f})")
+            print(f"Best mean config for {scenario}: {best_combo} (RMSE={best_rmse:.4f})")
             plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styles)
         else:
             print(f"Nenhuma configuração válida para {scenario}")
@@ -437,8 +475,8 @@ def generate_html_report(all_data, results_dir, same_dir=False):
                         pos_std = None
 
                     if yaw_vals:
-                        yaw_mean = np.mean(np.degrees(yaw_vals))
-                        yaw_std = np.std(np.degrees(yaw_vals))
+                        yaw_mean = np.mean(yaw_vals)
+                        yaw_std = np.std(yaw_vals)
                     else:
                         yaw_mean = None
                         yaw_std = None
