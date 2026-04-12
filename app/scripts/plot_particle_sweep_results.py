@@ -95,7 +95,7 @@ def calculate_yaw_rmse(est, gt):
 
     yaw_diff = np.arctan2(np.sin(est[:, 2] - gt[:, 2]), np.cos(est[:, 2] - gt[:, 2]))
     rmse_yaw = np.sqrt(np.mean(yaw_diff**2))
-    print(f"Calculated Yaw RMSE:{rmse_yaw:.2f} degrees")
+    #print(f"Calculated Yaw RMSE:{rmse_yaw:.2f} degrees")
     return rmse_yaw
 
 def calculate_path_rmse(est, gt):
@@ -107,34 +107,8 @@ def calculate_path_rmse(est, gt):
 
     error = np.linalg.norm(est[:, :2] - gt[:, :2], axis=1)
     rmse_pos = np.sqrt(np.mean(error**2))
-    print(f"Calculated Path RMSE: {rmse_pos:.4f} m")
+    #print(f"Calculated Path RMSE: {rmse_pos:.4f} m")
     return rmse_pos
-
-def load_trajectory(filepath):
-    est = []
-    gt = []
-    try:
-        with open(filepath, 'r') as f:
-            next(f)  # skip header
-
-            for line in f:
-                parts = line.strip().split(',')
-
-                if len(parts) < 7:
-                    continue
-
-                est_x = float(parts[1])
-                est_y = float(parts[2])
-                gt_x = float(parts[4])
-                gt_y = float(parts[5])
-
-                est.append((est_x, est_y))
-                gt.append((gt_x, gt_y))
-
-    except Exception as e:
-        print(f"Erro lendo trajetória {filepath}: {e}")
-
-    return np.array(est), np.array(gt)
 
 def load_trajectory(filepath):
     est = []
@@ -164,66 +138,72 @@ def load_trajectory(filepath):
 
     return np.array(est), np.array(gt)
 
-def unpack_best(data):
-
-    # --- Find best (lowest RMSE position) ---
-    best_combo = None
-    best_rmse = float("inf")
+def unpack_best_per_algo(data, trajectories, scenario):
+    best_per_algo = {}
 
     for algo, p_dict in data.items():
+        best_overall_rmse = float("inf")
+        best_p = None
+        absolute_best_run = None
+
         for p, stats in p_dict.items():
-            if stats["pos_mean"] < best_rmse:
-                best_rmse = stats["pos_mean"]
-                best_combo = (algo, p)
+            runs = trajectories.get((scenario, algo, p), [])
+            
+            for run in runs:
+                # Calculate RMSE for this specific run
+                run_rmse = calculate_path_rmse(run["est"], run["gt"])
+                
+                if run_rmse < best_overall_rmse:
+                    best_overall_rmse = run_rmse
+                    best_p = p
+                    absolute_best_run = run
 
-    return best_combo, best_rmse
+        if absolute_best_run:
+            best_per_algo[algo] = (best_p, best_overall_rmse, absolute_best_run)
+
+    return best_per_algo
 
 
-
-def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styles=None):
-
-    algo, particles = best_combo
-    key = (scenario, algo, particles)
-
-    if key not in trajectories:
-        print(f"Trajetória não encontrada para {key}")
-        return
-
-    est = trajectories[key]["est"]
-    gt = trajectories[key]["gt"]
-    x_gt, y_gt, yaw_gt = gt[:, 0], gt[:, 1], np.degrees(gt[:, 2])
-    x_est, y_est, yaw_est = est[:, 0], est[:, 1], np.degrees(est[:, 2])
-
-    calculate_yaw_rmse(est, gt)
-    calculate_path_rmse(est, gt)
-
-    style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}) if styles else {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo}
+def plot_best_paths_all_algos(scenario, best_per_algo, trajectories, best_path, ate_path, styles=None):
 
     plt.figure(figsize=(8, 6))
 
-    # Ground truth
-    plt.plot(
-        x_gt, y_gt,
-        linestyle='--',
-        linewidth=2,
-        color="#C00F0F",
-        label='Ground Truth'
-    )
+    plotted_gt = False
 
-    # Estimated path
-    plt.plot(
-        x_est, y_est,
-        linewidth=2,
-        label=f'{algo} ({particles}p)',
-        color=style['color'],
-        linestyle=style['linestyle']
-    )
+    for algo, (particles, rmse, best_run) in best_per_algo.items():
 
-    # Start/end markers
-    plt.scatter(x_gt[0], y_gt[0], marker='o', label='Start')
-    plt.scatter(x_gt[-1], y_gt[-1], marker='x', label='End')
+        if best_run is None:
+            continue
 
-    plt.title(f"Best Path - {scenario}")
+        est = best_run["est"]
+        gt = best_run["gt"]
+
+        x_gt, y_gt = gt[:, 0], gt[:, 1]
+        x_est, y_est = est[:, 0], est[:, 1]
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'label': algo})
+
+        if not plotted_gt:
+            plt.plot(
+                x_gt, y_gt,
+                linestyle='--',
+                linewidth=2,
+                color="#C00F0F",
+                label='Ground Truth'
+            )
+
+
+            plotted_gt = True
+
+        plt.plot(
+            x_est, y_est,
+            linewidth=2,
+            linestyle=style['linestyle'],
+            color=style['color'],
+            label=f'{algo} ({particles}p)'
+        )
+
+    plt.title(f"Best Paths per Algorithm - {scenario}")
     plt.xlabel("X (m)")
     plt.ylabel("Y (m)")
     plt.axis("equal")
@@ -233,40 +213,86 @@ def plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styl
     plt.savefig(best_path, dpi=200)
     plt.close()
 
-    #Plot angle comparison
     plt.figure(figsize=(8, 6))
-    plt.plot(yaw_gt, label='Ground Truth Yaw', linestyle='--', color="#C00F0F")
-    plt.plot(yaw_est, label=f'{algo} ({particles}p)', linestyle=style['linestyle'], color=style['color'])
-    plt.title(f"Best Yaw - {scenario}")
+
+    plotted_gt = False
+    best_yaw_path = best_path.replace(".png", "_yaw.png")
+
+    for algo, (particles, rmse, best_run) in best_per_algo.items():
+
+        if best_run is None:
+            continue
+
+        est = best_run["est"]
+        gt = best_run["gt"]
+
+        yaw_gt = np.degrees(gt[:, 2])
+        yaw_est = np.degrees(est[:, 2])
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'label': algo})
+
+        if not plotted_gt:
+            plt.plot(
+                yaw_gt,
+                linestyle='--',
+                linewidth=2,
+                color="#C00F0F",
+                label='Ground Truth'
+            )
+
+
+            plotted_gt = True
+
+        plt.plot(
+            yaw_est,
+            linewidth=2,
+            linestyle=style['linestyle'],
+            color=style['color'],
+            label=f'{algo} ({particles}p)'
+        )
+
+    plt.title(f"Best Yaw per Algorithm - {scenario}")
     plt.xlabel("Timestep")
-    plt.ylabel("Yaw (rad)")
+    plt.ylabel("Yaw (deg)")
+    plt.axis("equal")
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(best_path.replace(".png", "_yaw.png"), dpi=200)
+    plt.savefig(best_yaw_path, dpi=200)
     plt.close()
 
-    #Plot and compute ATE curve
-    error = np.linalg.norm(est - gt, axis=1)
-
+    # ---------------- ATE CURVE ----------------
     plt.figure(figsize=(8, 6))
-    plt.semilogy(error,
-             label=f'{algo} ({particles}p)',
-             color=style['color'],
-             linestyle=style['linestyle'])
-    plt.legend()
-    plt.title(f"Absolute Trajectory Error Over Time - {scenario}")
+
+    for algo, (particles, rmse, best_run) in best_per_algo.items():
+
+        if best_run is None:
+            continue
+
+        est = best_run["est"]
+        gt = best_run["gt"]
+
+        error = np.linalg.norm(est[:, :2] - gt[:, :2], axis=1)
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-'})
+
+        plt.semilogy(
+            error,
+            label=f'{algo} ({particles}p)',
+            linestyle=style['linestyle'],
+            color=style['color']
+        )
+
+    plt.title(f"ATE Comparison - {scenario}")
     plt.xlabel("Timestep")
     plt.ylabel("Position ATE (m)")
     plt.grid(True, linestyle='--', alpha=0.4)
-
-
+    plt.legend()
     plt.tight_layout()
     plt.savefig(ate_path, dpi=200)
     plt.close()
 
-    print(f"Best path plot salvo em: {best_path}")
-
+    print(f"Combined best path plot saved: {best_path}")
 
 def main():
 
@@ -303,10 +329,13 @@ def main():
                 path = os.path.join(results_dir, filename)
                 est, gt = load_trajectory(path)
                 if est.size > 0:
-                    trajectories[(scenario, algo, particles)] = {
-                        "est": est,
-                        "gt": gt
-                    }
+                    trajectories[(scenario, algo, particles)] = [
+                        {
+                            "est": est,
+                            "gt": gt,
+                            "file": filename
+                        }
+                    ]
                     print(f"Trajetória carregada: {filename} | {scenario} | {algo} | {particles}p")
 
     if not data:
@@ -318,7 +347,7 @@ def main():
         'AMCL': {'color': '#1f77b4', 'linestyle': ':', 'marker': 'o', 'label': 'AMCL'},
         'MHMCL': {'color': '#ff7f0e', 'linestyle': '--', 'marker': 'o', 'label': 'MHMCL'},
         'MHAMCL': {'color': '#2ca02c', 'linestyle': '-.', 'marker': 'o', 'label': 'MHAMCL'},
-        'AMHMCL': {'color': '#b4331f', 'linestyle': '-', 'marker': 'o', 'label': 'AMHMCL'},
+        'AMHMCL': {'color': "#b4801f", 'linestyle': '-', 'marker': 'o', 'label': 'AMHMCL'},
         'AMHAMCL': {'color': '#9467bd', 'linestyle': '--', 'marker': 'o', 'label': 'AMHAMCL'}
     }   
 
@@ -335,7 +364,7 @@ def main():
                 }
                 for p in sorted(p_dict.keys())
             }
-
+        
         # --- Plot everything for this scenario 
         pos_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
         plot_rmse(avg_data, scenario, pos_mean_plot_path, test="pos", stat="mean", styles=styles)
@@ -350,19 +379,19 @@ def main():
         plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
 
         # --- Find best (lowest RMSE position) ---
-        best_combo, best_rmse = unpack_best(avg_data)
+        best_per_algo = unpack_best_per_algo(avg_data, trajectories, scenario)
 
-        # --- Define output paths ---
-        best_path = os.path.join(plots_dir, f"{scenario}_best_path.png")
-        ate_path = os.path.join(plots_dir, f"{scenario}_ate_curve.png")
+        best_path = os.path.join(plots_dir, f"{scenario}_best_paths_all.png")
+        ate_path = os.path.join(plots_dir, f"{scenario}_ate_all.png")
 
-        # --- Call plotting ---
-        if best_combo:
-            print(f"Best mean config for {scenario}: {best_combo} (RMSE={best_rmse:.4f})")
-            plot_best_path(scenario, best_combo, trajectories, best_path, ate_path, styles)
-        else:
-            print(f"Nenhuma configuração válida para {scenario}")
-        
+        plot_best_paths_all_algos(
+            scenario,
+            best_per_algo,
+            trajectories,
+            best_path,
+            ate_path,
+            styles
+        )
         
     generate_html_report(data, plots_dir, True)
 
@@ -399,9 +428,9 @@ def generate_html_report(all_data, results_dir, same_dir=False):
         std_plot = f"{scenario}_particle_sweep_std.png"
         std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
 
-        best_path_plot = f"{scenario}_best_path.png"
-        ate_curve_plot = f"{scenario}_ate_curve.png"
-        best_path_yaw_plot = f"{scenario}_best_path_yaw.png"
+        best_path_plot = f"{scenario}_best_paths_all.png"
+        ate_curve_plot = f"{scenario}_ate_all.png"
+        best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
 
         if not same_dir:
             plots_dir = "plots"
