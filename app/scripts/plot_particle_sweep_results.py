@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
+
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
     return int(match.group(1)) if match else None
@@ -138,33 +139,34 @@ def load_trajectory(filepath):
 
     return np.array(est), np.array(gt)
 
-def unpack_best_per_algo(data, trajectories, scenario):
-    best_per_algo = {}
+def unpack_best_per_algo(summary_path, trajectories, current_scenario):
+    best_runs = {}
+    if not os.path.exists(summary_path):
+        print(f"Warning: {summary_path} not found.")
+        return {}
 
-    for algo, p_dict in data.items():
-        best_overall_rmse = float("inf")
-        best_p = None
-        absolute_best_run = None
-
-        for p, stats in p_dict.items():
-            runs = trajectories.get((scenario, algo, p), [])
+    with open(summary_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split(',')
+            if len(parts) < 3: continue
             
-            for run in runs:
-                # Calculate RMSE for this specific run
-                run_rmse = calculate_path_rmse(run["est"], run["gt"])
+            fname = parts[0].strip()
+            path_rmse = float(parts[1])
+            
+            # Check if this line belongs to the scenario we are currently plotting
+            if extract_scenario(fname) == current_scenario:
+                algo = extract_algorithm(fname)
+                parts_count = extract_particles(fname)
                 
-                if run_rmse < best_overall_rmse:
-                    best_overall_rmse = run_rmse
-                    best_p = p
-                    absolute_best_run = run
+                # Check if this is the best run for this specific algorithm
+                if algo not in best_runs or path_rmse < best_runs[algo][1]:
+                    if fname in trajectories:
+                        best_runs[algo] = (parts_count, path_rmse, trajectories[fname])
+                    else:
+                        print(f"Warning: Found {fname} in summary but no trajectory data loaded.")
+    return best_runs
 
-        if absolute_best_run:
-            best_per_algo[algo] = (best_p, best_overall_rmse, absolute_best_run)
-
-    return best_per_algo
-
-
-def plot_best_paths_all_algos(scenario, best_per_algo, trajectories, best_path, ate_path, styles=None):
+def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, styles=None):
 
     plt.figure(figsize=(8, 6))
 
@@ -184,6 +186,9 @@ def plot_best_paths_all_algos(scenario, best_per_algo, trajectories, best_path, 
         style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'label': algo})
 
         if not plotted_gt:
+
+            start = np.array([x_gt[0], y_gt[0]])
+            end = np.array([x_gt[-1], y_gt[-1]])
             plt.plot(
                 x_gt, y_gt,
                 linestyle='--',
@@ -191,6 +196,9 @@ def plot_best_paths_all_algos(scenario, best_per_algo, trajectories, best_path, 
                 color="#C00F0F",
                 label='Ground Truth'
             )
+
+            plt.scatter(start[0], start[1], color="#C00F0F", marker='o', s=100, label='Start')
+            plt.scatter(end[0], end[1], color="#C00F0F", marker='X', s=100, label='End')
 
 
             plotted_gt = True
@@ -254,7 +262,6 @@ def plot_best_paths_all_algos(scenario, best_per_algo, trajectories, best_path, 
     plt.title(f"Best Yaw per Algorithm - {scenario}")
     plt.xlabel("Timestep")
     plt.ylabel("Yaw (deg)")
-    plt.axis("equal")
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
     plt.tight_layout()
@@ -329,13 +336,11 @@ def main():
                 path = os.path.join(results_dir, filename)
                 est, gt = load_trajectory(path)
                 if est.size > 0:
-                    trajectories[(scenario, algo, particles)] = [
-                        {
+                    clean_path = filename.replace("poses_", "")
+                    trajectories[clean_path] = {
                             "est": est,
                             "gt": gt,
-                            "file": filename
-                        }
-                    ]
+                    }
                     print(f"Trajetória carregada: {filename} | {scenario} | {algo} | {particles}p")
 
     if not data:
@@ -379,7 +384,8 @@ def main():
         plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
 
         # --- Find best (lowest RMSE position) ---
-        best_per_algo = unpack_best_per_algo(avg_data, trajectories, scenario)
+        summary_path = os.path.join(results_dir, "summary_results.txt")
+        best_per_algo = unpack_best_per_algo(summary_path, trajectories, scenario)
 
         best_path = os.path.join(plots_dir, f"{scenario}_best_paths_all.png")
         ate_path = os.path.join(plots_dir, f"{scenario}_ate_all.png")
@@ -387,7 +393,6 @@ def main():
         plot_best_paths_all_algos(
             scenario,
             best_per_algo,
-            trajectories,
             best_path,
             ate_path,
             styles

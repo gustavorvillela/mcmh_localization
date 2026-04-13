@@ -6,7 +6,7 @@
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
 MODES=("MCL" "AMHMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 1000 1500)  # valores de partículas a testar
+PARTICLE_COUNTS=(250 500 1000 2500 5000)  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 REPEATS=2   # número de repetições por configuração
