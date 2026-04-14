@@ -10,7 +10,9 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, generate_valid_particles_exact, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
+import message_filters
+
 
 class AMCMHLocalizer:
     def __init__(self):
@@ -47,7 +49,6 @@ class AMCMHLocalizer:
         self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radianos
         self.kld_n_max = self.num_particles
         self.kld_z = rospy.get_param('kld_z', 2)
-        
 
         self.initial_pose = None  # Armazenará a pose inicial [x, y, theta]
         self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Covariância inicial (x, y em metros, theta em rad)
@@ -106,10 +107,11 @@ class AMCMHLocalizer:
         self.last_odom = None
         
         # Subscribers
-        rospy.Subscriber('/scan', LaserScan, self.lidar_callback)
-        rospy.Subscriber('/odom', Odometry, self.odom_callback)
-        
-        
+        scan_sub = message_filters.Subscriber('/scan', LaserScan)
+        odom_sub = message_filters.Subscriber('/odom', Odometry)
+        ts = message_filters.ApproximateTimeSynchronizer([scan_sub, odom_sub], queue_size=10, slop=0.1)
+        ts.registerCallback(self.sync_callback)
+
         # Publishers
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=1)
         self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=1)
@@ -189,8 +191,8 @@ class AMCMHLocalizer:
                                                            self.dist_2d,self.resolution,self.origin_np)
             
         else:
-            #rospy.loginfo("Inicializando partículas uniformemente no mapa")
-            final_particles = generate_valid_particles_exact(self.num_particles,
+            rospy.loginfo("Inicializando partículas uniformemente no mapa")
+            final_particles = generate_valid_particles(self.num_particles,
                                              self.map_data, self.resolution,
                                              self.origin_np[0], self.origin_np[1], self.width, self.height)
 
@@ -256,6 +258,8 @@ class AMCMHLocalizer:
 
     def update_weights(self):
 
+        #print(f"[DEBUG] Calculating weights for {len(self.particles)} particles post and {len(self.particles_prev)} particles pre...")
+
         scores_pre = compute_likelihoods(
         self.scan_ranges, self.angles, self.particles_prev,
         self.distance_map, self.resolution, self.origin_np,
@@ -276,6 +280,8 @@ class AMCMHLocalizer:
 
         weights_post = self.convert_scores(scores_post)
 
+        #print(f"[DEBUG] Nb weights pre: {len(weights_pre)} | Nb weights post: {len(weights_post)} | Nb particles: {len(self.particles)}")
+
 
         return weights_pre, weights_post
     
@@ -291,14 +297,6 @@ class AMCMHLocalizer:
         w_avg = np.mean(self.weights)  # média dos pesos normalizados
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
-
-    def enforce_particle_weight_consistency(self):
-        Np = len(self.particles)
-        Nw = len(self.weights)
-
-        if Np != Nw:
-            rospy.logwarn(f"[FIX] particles={Np}, weights={Nw} → resetting weights")
-            self.weights = np.full(Np, 1.0 / Np)
 
 
     #======================================================================
@@ -327,7 +325,6 @@ class AMCMHLocalizer:
 
             weights = weights_post
 
-        
         if self.use_adaptive:
 
             self.update_acml_weights(weights)
@@ -339,9 +336,6 @@ class AMCMHLocalizer:
             
         #Publish and resampling
         #rospy.loginfo("Publicando pose estimada")
-        #rospy.loginfo(f"Weight std: {np.std(self.weights):.6f} | w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | Num Particles: {len(self.particles)}")
-        #rospy.loginfo(f"Max weight: {np.max(self.weights):.6f}")
-        
         
         if self.use_adaptive:
 
@@ -350,11 +344,11 @@ class AMCMHLocalizer:
         else:
 
             self.resample_lvr()
+
         
-        #rospy.loginfo("Publicando partículas")
         self.publish_estimate()
-        if not self.headless:
-            self.publish_particles()
+        #rospy.loginfo("Publicando partículas")
+        self.publish_particles()
 
 
     def update_scans(self,scan):
@@ -370,29 +364,23 @@ class AMCMHLocalizer:
     def convert_scores(self,scores):
 
         max_score = np.max(scores)
+        weights = np.zeros_like(scores)
+        weights = np.exp(scores - max_score)
+        weights =  weights/np.sum(weights)
 
-        weights = np.exp(scores - max_score)  # numerical stability
-        sum_w = np.sum(weights)
-
-        if sum_w == 0 or not np.isfinite(sum_w):
-            rospy.logwarn("Weight collapse detected! Resetting weights.")
-            N = len(weights)
-            return np.full(N, 1.0 / N)
-
-        return weights / sum_w
+        return weights
 
     def update_particles_mh(self,weights_pre, weights_post):
 
         if not self.assym:
             mh_particles, weights = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
         else:
-
+            
             trans_forward, trans_backward = self.transition_probability()
             mh_particles, weights = assym_mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre,trans_forward,trans_backward)
 
 
         self.particles = mh_particles
-        self.enforce_particle_weight_consistency()
         
         return weights
 
@@ -441,12 +429,15 @@ class AMCMHLocalizer:
         trans = np.hypot(dx, dy)
         rot2 = dtheta - rot1
 
-        #rospy.loginfo(f"Odometry delta: rot1={rot1:.4f} rad, trans={trans:.4f} m, rot2={rot2:.4f} rad")
+        
 
         return rot1, trans, rot2
 
 
     def transition_probability(self):
+        #print(f"[DEBUG] Delta for transition probability: {self.delta}")
+        if self.delta == (0.0, 0.0, 0.0):
+            return np.ones(len(self.particles)), np.ones(len(self.particles_prev))
 
         trans_forward = motion_model_odometry_parallel(self.particles_prev,self.particles,
                                                        np.array(self.delta), self.alpha)
@@ -476,14 +467,11 @@ class AMCMHLocalizer:
 
         resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
 
-        random_particles = generate_valid_particles_exact(N_random,self.map_data,
+        random_particles = generate_valid_particles(N_random,self.map_data,
                                                     self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
         
         self.particles = np.vstack((resampled_particles,random_particles))
-        self.num_particles = len(self.particles)
-        self.weights = np.full(self.num_particles, 1.0 / self.num_particles)
-
-        self.enforce_particle_weight_consistency()
+        self.weights   = np.full(N,1/N)
 
     def resample_amcl_lvr(self):
 
@@ -497,7 +485,7 @@ class AMCMHLocalizer:
 
         for i in range(N):
             if np.random.rand() < p_random:
-                resampled_particles[i,:] = generate_valid_particles_exact(1,self.map_data,
+                resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
                                                     self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
             else:
@@ -520,7 +508,6 @@ class AMCMHLocalizer:
         self.particles = resampled_particles
 
 
-
     def resample_amcl_kld(self):
         p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
@@ -529,6 +516,7 @@ class AMCMHLocalizer:
         N_resampled = N - N_random
 
         # KLD Sampling com Numba
+        #rospy.loginfo("Realizando amostragem KLD...")
         resampled_particles = kld_sampling_amcl(
             self.particles,
             self.weights,
@@ -540,21 +528,22 @@ class AMCMHLocalizer:
             self.min_particles
         )
 
+        #print(f"[DEBUG] KLD resampled {resampled_particles.shape[0]} particles | Nans: {np.isnan(resampled_particles).sum()} | Infs: {np.isinf(resampled_particles).sum()}")
 
-        random_particles = generate_valid_particles_exact(N_random,self.map_data,
-                                                    self.resolution,self.origin_np[0],
-                                                    self.origin_np[1],self.width,
-                                                    self.height)
+
+        random_particles = generate_valid_particles(N_random,self.map_data,
+                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
         # Junta
-        self.particles = np.vstack((random_particles, resampled_particles))
         self.num_particles = len(self.particles)
+        self.particles = np.vstack((random_particles, resampled_particles))
         self.weights   = np.full(len(self.particles), 1.0 / len(self.particles))
+        #print(f"[DEBUG] Total particles after KLD + random: {len(self.particles)} | Random: {N_random} | Resampled: {resampled_particles.shape[0]}")
+        #print(f"[DEBUG] KLD weights sum: {np.sum(self.weights)} | min: {np.min(self.weights)} | max: {np.max(self.weights)} | Nb_weights: {len(self.weights)}")
 
         if len(self.particles) != N:
 
             rospy.loginfo(f"Particle update!\n From: {N}  To: {len(self.particles)}")
-            pass
         
 
         
@@ -567,6 +556,7 @@ class AMCMHLocalizer:
     #======================================================================
 
     def publish_particles(self):
+
         marker_array = MarkerArray()
 
         clear_marker = Marker()
@@ -575,6 +565,9 @@ class AMCMHLocalizer:
 
         weights = self.weights[:len(self.particles)]
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+
+        cos_half_theta = np.cos(self.particles[:,2] / 2.0)
+        sin_half_theta = np.sin(self.particles[:,2] / 2.0)
         marker_id =0
         for p, w in zip(self.particles, norm_weights):
             if not self.is_valid_position(p[0], p[1]):
@@ -611,12 +604,7 @@ class AMCMHLocalizer:
     
     def publish_estimate(self):
 
-        self.enforce_particle_weight_consistency()
 
-        if len(self.particles) != len(self.weights):
-            rospy.logwarn(f"Mismatch particles/weights: {len(self.particles)} vs {len(self.weights)}. Fixing...")
-            N = len(self.particles)
-            self.weights = np.full(N, 1.0 / N)
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
         cos_mean = np.sum(np.cos(self.particles[:,2]) * self.weights)
         sin_mean = np.sum(np.sin(self.particles[:,2]) * self.weights)
@@ -656,10 +644,37 @@ class AMCMHLocalizer:
         if not rospy.is_shutdown():
             self.pose_pub.publish(pose)
 
+    def sync_callback(self, scan_msg, odom_msg):
+        # 1. MOVE: Apply Odometry first
+        # This keeps particles_prev and particles at the same size
+        #print("[DEBUG] Sync callback triggered: moving particles with odometry...")
+        self.move_particles(odom_msg) 
+        
+        # 2. WEIGHT: Use the LiDAR scan to update weights
+        #print("[DEBUG] Updating weights with LiDAR scan...")
+        self.update_scans(scan_msg)
+        weights_pre, weights_post = self.update_weights()
+        
+        # 3. MH STEP: Perform MH resampling
+        if self.use_mh:
+            weights = self.update_particles_mh(weights_pre, weights_post)
+        else:
+            weights = weights_post
+
+        # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
+        if self.use_adaptive:
+            self.update_acml_weights(weights)
+            self.resample_amcl_kld()
+        else:
+            self.weights = weights
+            self.resample_lvr()
+
+        # 5. PUBLISH
+        self.publish_estimate()
+        self.publish_particles()
 
 if __name__ == '__main__':
     try:
         AMCMHLocalizer()
     except rospy.ROSInterruptException:
         pass
-    

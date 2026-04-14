@@ -141,9 +141,9 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                 log_score += np.log(p)
 
         if valid_count > 0:
-            scores[i] = log_score/valid_count #  média log-probabilidade por feixe
+            scores[i] = log_score/valid_count 
         else:
-            scores[i] = -1e6  # penaliza partículas cegas
+            scores[i] = -50  # penaliza partículas cegas
 
     return scores
 
@@ -223,18 +223,15 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     new_particles = particles.copy()
     new_weights = old_weights.copy()
 
-    alpha_array = np.empty(N, dtype=np.float64)
-
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
         alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
 
-    #print("MH acceptance rate:", np.mean(alpha_array))
+
     return new_particles, new_weights
 
 @njit(parallel=True)
@@ -266,17 +263,17 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
 
     for i in prange(N):
         
-        log_num = log_dist_post[i] + log_trans_backward[i]
-        log_den = log_dist_pre[i] + log_trans_forward[i]
-        log_alpha = log_num - log_den
-        alpha = min(1.0, np.exp(log_alpha)) 
+        num = likelihoods[i] + trans_backward[i] + 1e-10
+        den = old_weights[i] + trans_forward[i] + 1e-10
+        frac = num/den
+        alpha = min(1.0, frac) if den > 0 else 1.0
         alpha_array[i] = alpha
 
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = likelihoods[i]
 
-    #print("MH acceptance rate:", np.mean(alpha_array))
+    print("MH acceptance rate:", np.mean(alpha_array))
     return new_particles, new_weights
 
 #=======================================================================
@@ -450,16 +447,6 @@ def low_variance_resample_numba(particles, weights, N):
     return new_particles, new_weights
 
 
-def generate_valid_particles_exact(num_particles, map_data, map_resolution, origin_x, origin_y,width,height):
-
-    particles = generate_valid_particles(num_particles, map_data, map_resolution, origin_x, origin_y,width,height)
-
-    while len(particles) < num_particles:
-        needed = num_particles - len(particles)
-        new_particles = generate_valid_particles(needed, map_data, map_resolution, origin_x, origin_y,width,height)
-        particles = np.vstack((particles, new_particles))
-
-    return particles[:num_particles]
 
 @njit
 def generate_valid_particles(num_particles,
@@ -601,6 +588,7 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
         
         sampled_particles[count] = noisy_particle
         count += 1
+
     
     return sampled_particles[:count]  # Retorna apenas as amostradas
 

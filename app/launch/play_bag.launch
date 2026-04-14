@@ -6,12 +6,13 @@
   <arg name="mode" default="MCL"/>
   <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
   <arg name="rviz" default="true"/>
+  <arg name="params_file" default="amhmcl"/>
 
   <!-- ========================================================= -->
   <!-- Parameters -->
   <!-- ========================================================= -->
   <!-- Load general params -->
-  <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
+  <rosparam file="$(find mcmh_localization)/params/$(arg params_file).yaml" command="load" />
 
   <!-- Set localization mode -->
   <param name="localization_mode" value="$(arg mode)"/>

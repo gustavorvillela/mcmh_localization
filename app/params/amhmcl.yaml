@@ -15,9 +15,9 @@
 # Choose the number of initial particles based on your environment size and
 # the expected initial uncertainty of the robot pose
 
-localization_mode: "AMCL"  
+localization_mode: "MCL"  
 initialized: False
-init_particles: 1000
+init_particles: 500
 headless: False  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
 #=======================================
@@ -26,12 +26,12 @@ headless: False  # If True, the node will not publish visualization markers for 
 
 # Tune these parameters based on your robot's motion characteristics
 
-alpha1: 0.005   # rotation noise due to rotation
-alpha2: 0.006   # translation noise due to rotation
-alpha3: 0.004   # rotation noise due to translation
-alpha4: 0.002   # translation noise due to translation
-alpha5: 0.01   # additional noise for in-place rotation
-alpha6: 0.015   # additional noise for in-place translation
+alpha1: 0.01   # rotation noise due to rotation
+alpha2: 0.012   # translation noise due to rotation
+alpha3: 0.008   # rotation noise due to translation
+alpha4: 0.004   # translation noise due to translation
+alpha5: 0.02   # additional noise for in-place rotation
+alpha6: 0.03   # additional noise for in-place translation
 
 #=======================================
 # KLD Resampling parameters
@@ -42,8 +42,8 @@ kld_z: 0.99 # 99% confidence interval
 kld_bin_size_xy: 0.15  # 5 cm
 kld_bin_size_theta: 0.2  # 11 graus em radianos
 kld_delta: 0.9
-min_particles: 100
-max_particles: 2000
+min_particles: 200
+max_particles: 2500
 
 
 #=======================================
@@ -51,7 +51,7 @@ max_particles: 2000
 #=======================================
 
 alpha_slow: 0.001 # slow learning rate
-alpha_fast: 0.1  # fast learning rate
+alpha_fast: 0.01  # fast learning rate
 
 
 
@@ -62,8 +62,8 @@ alpha_fast: 0.1  # fast learning rate
 # Tune these parameters based on your LiDAR characteristics and environment
 # or using a learn intrinsic parameters method
 
-sigma_hit: 0.25
-z_hit: 0.8
+sigma_hit: 0.35
+z_hit: 0.75
 z_rand: 0.2
 max_range: 8.0
 step: 1
