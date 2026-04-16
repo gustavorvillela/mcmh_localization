@@ -6,12 +6,13 @@
   <arg name="mode" default="MCL"/>
   <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
   <arg name="rviz" default="true"/>
+  <arg name="params_file" default="amhmcl"/>
 
   <!-- ========================================================= -->
   <!-- Parameters -->
   <!-- ========================================================= -->
   <!-- Load general params -->
-  <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
+  <rosparam file="$(find mcmh_localization)/params/$(arg params_file).yaml" command="load" />
 
   <!-- Set localization mode -->
   <param name="localization_mode" value="$(arg mode)"/>
@@ -20,7 +21,7 @@
   <!-- Nodes -->
   <!-- ========================================================= -->
 
-  <!-- Publisher contínuo de pose inicial -->
+  <!-- Publisher contínuo de pose inicial 
   <node name="continuous_initial_pose_publisher" pkg="mcmh_localization" type="initial_pose_pub.py" output="screen">
     <param name="x" value="-2.0"/>
     <param name="y" value="-0.5"/>
@@ -34,7 +35,7 @@
        0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
        0.0, 0.0, 0.0, 0.0, 0.0, 0.1]
     </rosparam>
-  </node>
+  </node>-->
 
   <!-- Main localizer node -->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen">

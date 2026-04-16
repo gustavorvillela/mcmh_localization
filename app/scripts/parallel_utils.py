@@ -133,16 +133,15 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                     continue   # skip this beam
                 index = my * width + mx
                 dist = distance_map[index]
+                dist = min(dist, max_range)
                 p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
-                p_max = 1.0 if abs(r - max_range) < 0.01 else 0.0
-                p_short = lambda_short * np.exp(-lambda_short * dist) if r >= 0 else 0.0
-                p_rand = 1.0 / max_range if 0 <= r <= max_range else 0.0
-                p = z_hit * p_hit + z_rand * p_rand + z_short * p_short + z_max * p_max
+                p_rand = 1.0 / max_range if np.isfinite(r) else 0.0
+                p = z_hit * p_hit + z_rand * p_rand
                 p = max(p, 1e-6)  # evita log(0)
                 log_score += np.log(p)
 
         if valid_count > 0:
-            scores[i] = log_score/valid_count  # média log-probabilidade por feixe
+            scores[i] = log_score/valid_count 
         else:
             scores[i] = -50  # penaliza partículas cegas
 
@@ -224,18 +223,15 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     new_particles = particles.copy()
     new_weights = old_weights.copy()
 
-    alpha_array = np.empty(N, dtype=np.float64)
-
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
         alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
-        alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
 
-    print("MH acceptance rate:", np.mean(alpha_array))
+
     return new_particles, new_weights
 
 @njit(parallel=True)
@@ -267,10 +263,10 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
 
     for i in prange(N):
         
-        log_num = log_dist_post[i] + log_trans_backward[i]
-        log_den = log_dist_pre[i] + log_trans_forward[i]
-        log_alpha = log_num - log_den
-        alpha = min(1.0, np.exp(log_alpha)) 
+        num = likelihoods[i] + trans_backward[i] + 1e-10
+        den = old_weights[i] + trans_forward[i] + 1e-10
+        frac = num/den
+        alpha = min(1.0, frac) if den > 0 else 1.0
         alpha_array[i] = alpha
 
         if np.random.rand() < alpha:
@@ -299,7 +295,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
         probs: (N,) array of motion model probabilities (normalized)
     """
     rot1, trans, rot2 = delta
-    a1, a2, a3, a4 = alpha
+    a1, a2, a3, a4, a5, a6 = alpha
     N = particles_prev.shape[0]
     probs = np.empty(N, dtype=np.float64)
 
@@ -318,7 +314,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
         # Noise parameters
         sigma_rot1 = a1 * abs(rot1) + a2 * abs(trans)
         sigma_trans = a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2))
-        sigma_rot2 = a1 * abs(rot2) + a2 * abs(trans)
+        sigma_rot2 = a5 * abs(rot2) + a6 * abs(trans)
 
         # Gaussian motion likelihoods
         p1 = gaussian_prob(normalize_angle(rot1 - rot1_hat), sigma_rot1)
@@ -337,7 +333,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
 @njit(parallel=True)
 def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolution, origin_x, origin_y, width, height):
     rot1, trans, rot2 = delta
-    a1, a2, a3, a4 = alpha
+    a1, a2, a3, a4, a5, a6 = alpha
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
@@ -349,7 +345,7 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
         for _ in range(max_attempts):
             r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans) + nfloor)
             t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)) + nfloor)
-            r2_hat = rot2 + np.random.normal(0, a1 * abs(rot2) + a2 * abs(trans) + nfloor)
+            r2_hat = rot2 + np.random.normal(0, a5 * abs(rot2) + a6 * abs(trans) + nfloor)
 
 
             x, y, theta = particles[i]
@@ -592,6 +588,7 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
         
         sampled_particles[count] = noisy_particle
         count += 1
+
     
     return sampled_particles[:count]  # Retorna apenas as amostradas
 

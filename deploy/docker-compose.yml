@@ -18,6 +18,7 @@ services:
       - ~/.gazebo/models:/root/.gazebo/models:rw
       - /opt/ros/noetic/share/turtlebot3_description:/opt/ros/noetic/share/turtlebot3_description:ro
       - ../../turtlebot3_diff:/root/catkin_ws/src/turtlebot3_diff:rw
+      - ../../turtlebot3_simulations:/root/catkin_ws/src/turtlebot3_simulations:rw
 
     environment:
       - DISPLAY
