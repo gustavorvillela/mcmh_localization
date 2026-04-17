@@ -3,6 +3,7 @@ import rospy
 import numpy as np
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from gazebo_msgs.msg import ModelStates
+from std_msgs.msg import Float64
 import os
 from tf.transformations import euler_from_quaternion
 
@@ -10,6 +11,7 @@ class Evaluator:
     def __init__(self):
         self.est_topic = rospy.get_param("~est_topic", "/estimated_pose")
         self.gt_topic = rospy.get_param("~gt_topic", "/gazebo/model_states")
+        self.mh_topic = rospy.get_param("~mh_topic", "/mh_rate")
         self.robot_name = rospy.get_param("~robot_name", "turtlebot3_waffle")
 
         result_param = rospy.get_param("~result_name", "eval")
@@ -21,6 +23,7 @@ class Evaluator:
         self.poses_file = os.path.join(results_dir, f"poses_{result_name}.txt")
 
         self.gt_pose = None
+        self.mh_rate = None
         self.eval_start_time = None
 
         # Store poses
@@ -28,6 +31,7 @@ class Evaluator:
 
         rospy.Subscriber(self.est_topic, PoseWithCovarianceStamped, self.estimated_callback)
         rospy.Subscriber(self.gt_topic, ModelStates, self.gt_callback)
+        rospy.Subscriber(self.mh_topic, Float64, self.mh_callback)
 
     def get_yaw_from_pose(self, pose):
         quat = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
@@ -35,7 +39,7 @@ class Evaluator:
         return yaw
 
     def estimated_callback(self, msg):
-        if self.gt_pose is None:
+        if self.gt_pose is None or self.mh_rate is None:
             return
 
         # Use ROS timestamp (better than wall time)
@@ -50,10 +54,12 @@ class Evaluator:
         gt_y = self.gt_pose.position.y
         gt_yaw = self.get_yaw_from_pose(self.gt_pose)
 
+        mh_rate = self.mh_rate
+
         self.pose_history.append((
             timestamp,
             est_x, est_y, est_yaw,
-            gt_x, gt_y, gt_yaw
+            gt_x, gt_y, gt_yaw, mh_rate
         ))
 
     def gt_callback(self, msg):
@@ -61,6 +67,9 @@ class Evaluator:
             return
         idx = msg.name.index(self.robot_name)
         self.gt_pose = msg.pose[idx]
+
+    def mh_callback(self, msg):
+        self.mh_rate = msg.data
 
     def run(self):
         rospy.loginfo("Recording poses only...")
@@ -72,14 +81,14 @@ class Evaluator:
             return
 
         with open(self.poses_file, "w") as f:
-            f.write("time,est_x,est_y,est_yaw,gt_x,gt_y,gt_yaw\n")
+            f.write("time,est_x,est_y,est_yaw,gt_x,gt_y,gt_yaw,mh_rate\n")
             for data in self.pose_history:
                 f.write(
                     f"{data[0]:.6f},{data[1]:.4f},{data[2]:.4f},{data[3]:.6f},"
-                    f"{data[4]:.4f},{data[5]:.4f},{data[6]:.6f}\n"
+                    f"{data[4]:.4f},{data[5]:.4f},{data[6]:.6f},{data[7]:.6f}\n"
                 )
 
-        rospy.loginfo(f"Pose data saved to: {self.poses_file}")
+        rospy.loginfo(f"Data saved to: {self.poses_file}")
 
 
 if __name__ == "__main__":

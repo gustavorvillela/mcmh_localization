@@ -193,7 +193,7 @@ def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_re
                 log_score += np.log(p)
 
         if valid_count > 0:
-            scores[i] = log_score / valid_count
+            scores[i] = log_score #/ valid_count
         else:
             scores[i] = -np.inf
 
@@ -223,16 +223,20 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     new_particles = particles.copy()
     new_weights = old_weights.copy()
 
+    alpha_array = np.empty(N, dtype=np.float64)
+
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
         alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
             new_weights[i] = p_new
 
-
-    return new_particles, new_weights
+    acc_rate = np.mean(alpha_array)
+    #print("MH acceptance rate:", acc_rate)
+    return new_particles, new_weights, acc_rate
 
 @njit(parallel=True)
 def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights, trans_forward, trans_backward):
@@ -273,8 +277,9 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
             new_particles[i] = proposed_particles[i]
             new_weights[i] = likelihoods[i]
 
-    print("MH acceptance rate:", np.mean(alpha_array))
-    return new_particles, new_weights
+    acc_rate = np.mean(alpha_array)
+    #print("MH acceptance rate:", acc_rate)
+    return new_particles, new_weights, acc_rate
 
 #=======================================================================
 # Funções de motion model
@@ -298,6 +303,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
     a1, a2, a3, a4, a5, a6 = alpha
     N = particles_prev.shape[0]
     probs = np.empty(N, dtype=np.float64)
+    eps = 1e-6
 
     for i in prange(N):
         x_prev, y_prev, theta_prev = particles_prev[i]
@@ -308,13 +314,17 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
         dy = y_curr - y_prev
 
         trans_hat = np.sqrt(dx*dx + dy*dy)
-        rot1_hat = normalize_angle(np.arctan2(dy, dx) - theta_prev)
-        rot2_hat = normalize_angle(theta_curr - theta_prev - rot1_hat)
+        if trans_hat < 0.002:
+            rot1_hat = 0.0
+            rot2_hat = normalize_angle(theta_curr - theta_prev)
+        else:
+            rot1_hat = normalize_angle(np.arctan2(dy, dx) - theta_prev)
+            rot2_hat = normalize_angle(theta_curr - theta_prev - rot1_hat)
 
         # Noise parameters
-        sigma_rot1 = a1 * abs(rot1) + a2 * abs(trans)
-        sigma_trans = a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2))
-        sigma_rot2 = a5 * abs(rot2) + a6 * abs(trans)
+        sigma_rot1  = max(a1 * abs(rot1) + a2 * abs(trans), eps)
+        sigma_trans = max(a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)), eps)
+        sigma_rot2  = max(a5 * abs(rot2) + a6 * abs(trans), eps)
 
         # Gaussian motion likelihoods
         p1 = gaussian_prob(normalize_angle(rot1 - rot1_hat), sigma_rot1)
@@ -324,9 +334,9 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
         probs[i] = p1 * p2 * p3
 
     # Normalize probabilities
-    s = np.sum(probs)
-    if s > 0:
-        probs /= s
+    #s = np.sum(probs)
+    #if s > 0:
+    #    probs /= s
 
     return probs
 
@@ -338,16 +348,18 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     new_particles = np.empty_like(particles)
 
     max_attempts = 1000
-    nfloor = 0.002
+    nfloor = 0.00001
+    dynamic_floor = nfloor * min(1.0, trans*20 + abs(rot1) + abs(rot2))
+
+    deltas = np.zeros((num_particles, 3), dtype=np.float64)
 
     for i in prange(num_particles):
         success = False
         for _ in range(max_attempts):
-            r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans) + nfloor)
-            t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)) + nfloor)
-            r2_hat = rot2 + np.random.normal(0, a5 * abs(rot2) + a6 * abs(trans) + nfloor)
-
-
+            r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans) + dynamic_floor)
+            t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)) + dynamic_floor)
+            r2_hat = rot2 + np.random.normal(0, a5 * abs(rot2) + a6 * abs(trans) + dynamic_floor)
+            delta_hat = np.array([r1_hat, t_hat, r2_hat])
             x, y, theta = particles[i]
             x_new = x + t_hat * np.cos(theta + r1_hat)
             y_new = y + t_hat * np.sin(theta + r1_hat)
@@ -355,13 +367,14 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
 
             if is_valid_position(x_new, y_new, map_data, width, height, map_resolution, origin_x, origin_y):
                 new_particles[i] = [x_new, y_new, theta_new]
+                deltas[i] = delta_hat
                 success = True
                 break
 
         if not success:
             new_particles[i] = particles[i]  # fallback: mantém partícula antiga
 
-    return new_particles
+    return new_particles, deltas
 
 #=======================================================================
 # Funções de resample e validação

@@ -4,6 +4,7 @@ import numpy as np
 from numpy.random import choice
 import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Float64
 from nav_msgs.msg import Odometry, OccupancyGrid
 from geometry_msgs.msg import PoseWithCovarianceStamped, Pose
 from visualization_msgs.msg import Marker, MarkerArray
@@ -115,6 +116,7 @@ class AMCMHLocalizer:
         # Publishers
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=1)
         self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=1)
+        self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=1)
         
         # TF
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
@@ -363,9 +365,9 @@ class AMCMHLocalizer:
 
     def convert_scores(self,scores):
 
-        max_score = np.max(scores)
-        weights = np.zeros_like(scores)
-        weights = np.exp(scores - max_score)
+        #max_score = np.max(scores)
+        #weights = np.zeros_like(scores)
+        weights = np.exp(scores)
         weights =  weights/np.sum(weights)
 
         return weights
@@ -373,13 +375,13 @@ class AMCMHLocalizer:
     def update_particles_mh(self,weights_pre, weights_post):
 
         if not self.assym:
-            mh_particles, weights = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
+            mh_particles, weights, acc_rate = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
         else:
             
             trans_forward, trans_backward = self.transition_probability()
-            mh_particles, weights = assym_mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre,trans_forward,trans_backward)
+            mh_particles, weights, acc_rate = assym_mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre,trans_forward,trans_backward)
 
-
+        self.acc_rate.publish(Float64(acc_rate))
         self.particles = mh_particles
         
         return weights
@@ -407,29 +409,35 @@ class AMCMHLocalizer:
 
             self.delta = self.compute_motion(self.last_odom, current_odom)
             
-            self.particles_prop = apply_motion_model_parallel(self.particles,self.delta,self.alpha,
+            self.particles_prop, deltas = apply_motion_model_parallel(self.particles,self.delta,self.alpha,
                                                               self.map_data, self.resolution,
                                                               self.origin_np[0], self.origin_np[1],
                                                               self.width,self.height)
             
             #rospy.loginfo(f"Partículas movidas: {len(self.particles_prop)}\n")
-            
+            print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
+            print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
             self.particles_prev = self.particles.copy()
             self.particles = self.particles_prop.copy()
             
-
+        
+        
         self.last_odom = current_odom
+
 
     def compute_motion(self, odom1, odom2):
         dx = odom2[0] - odom1[0]
         dy = odom2[1] - odom1[1]
+        trans = np.hypot(dx, dy)
+
         dtheta = normalize_angle(odom2[2] - odom1[2])
 
-        rot1 = np.arctan2(dy, dx) - odom1[2]
-        trans = np.hypot(dx, dy)
-        rot2 = dtheta - rot1
+        # no translation -> pure rotation
+        if trans < 0.002:
+            return 0.0, 0.0, dtheta
 
-        
+        rot1 = normalize_angle(np.arctan2(dy, dx) - odom1[2])
+        rot2 = normalize_angle(dtheta - rot1)
 
         return rot1, trans, rot2
 

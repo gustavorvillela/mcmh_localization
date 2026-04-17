@@ -17,7 +17,7 @@
 
 localization_mode: "MCL"  
 initialized: False
-init_particles: 500
+init_particles: 1000
 headless: False  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
 #=======================================
@@ -26,12 +26,12 @@ headless: False  # If True, the node will not publish visualization markers for 
 
 # Tune these parameters based on your robot's motion characteristics
 
-alpha1: 0.01   # rotation noise due to rotation
-alpha2: 0.012   # translation noise due to rotation
-alpha3: 0.008   # rotation noise due to translation
-alpha4: 0.004   # translation noise due to translation
-alpha5: 0.02   # additional noise for in-place rotation
-alpha6: 0.03   # additional noise for in-place translation
+alpha1: 0.8  # rotation noise due to rotation
+alpha2: 0.8   # translation noise due to rotation
+alpha3: 0.2   # rotation noise due to translation
+alpha4: 0.2   # translation noise due to translation
+alpha5: 0.8  # additional noise for in-place rotation
+alpha6: 0.8  # additional noise for in-place translation
 
 #=======================================
 # KLD Resampling parameters
@@ -63,7 +63,7 @@ alpha_fast: 0.01  # fast learning rate
 # or using a learn intrinsic parameters method
 
 sigma_hit: 0.35
-z_hit: 0.75
+z_hit: 0.8
 z_rand: 0.2
 max_range: 8.0
 step: 1
