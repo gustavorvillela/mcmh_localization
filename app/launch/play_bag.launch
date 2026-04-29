@@ -2,7 +2,7 @@
   <!-- ========================================================= -->
   <!-- Arguments -->
   <!-- ========================================================= -->
-  <arg name="bag_file" default="L_rest"/>
+  <arg name="bag_file" default="explore_bin"/>
   <arg name="mode" default="MCL"/>
   <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
   <arg name="rviz" default="true"/>

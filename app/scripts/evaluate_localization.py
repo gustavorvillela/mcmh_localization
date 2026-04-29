@@ -12,7 +12,7 @@ class Evaluator:
         self.est_topic = rospy.get_param("~est_topic", "/estimated_pose")
         self.gt_topic = rospy.get_param("~gt_topic", "/gazebo/model_states")
         self.mh_topic = rospy.get_param("~mh_topic", "/mh_rate")
-        self.robot_name = rospy.get_param("~robot_name", "turtlebot3_waffle")
+        self.robot_name = rospy.get_param("~robot_name", "turtlebot3_burguer")
 
         result_param = rospy.get_param("~result_name", "eval")
         result_name = os.path.basename(result_param).replace(".txt", "")
@@ -39,7 +39,9 @@ class Evaluator:
         return yaw
 
     def estimated_callback(self, msg):
-        if self.gt_pose is None or self.mh_rate is None:
+        if self.gt_pose is None:
+            #print("Waiting for ground truth pose...")
+            #print(f"Robot name: {self.robot_name}")
             return
 
         # Use ROS timestamp (better than wall time)
@@ -54,7 +56,9 @@ class Evaluator:
         gt_y = self.gt_pose.position.y
         gt_yaw = self.get_yaw_from_pose(self.gt_pose)
 
-        mh_rate = self.mh_rate
+        mh_rate = self.mh_rate if self.mh_rate is not None else 0.0
+        #print(f"Time: {timestamp:.2f}, Est: ({est_x:.2f}, {est_y:.2f}, {est_yaw:.2f}), "
+        #      f"GT: ({gt_x:.2f}, {gt_y:.2f}, {gt_yaw:.2f}), MH Rate: {mh_rate:.4f}")
 
         self.pose_history.append((
             timestamp,
@@ -95,9 +99,6 @@ if __name__ == "__main__":
     rospy.init_node("evaluate_localization")
     evaluator = Evaluator()
 
-    try:
-        evaluator.run()
-    except rospy.ROSInterruptException:
-        pass
-    finally:
-        evaluator.save_results()
+    rospy.on_shutdown(evaluator.save_results)
+
+    evaluator.run()

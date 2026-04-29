@@ -415,8 +415,8 @@ class AMCMHLocalizer:
                                                               self.width,self.height)
             
             #rospy.loginfo(f"Partículas movidas: {len(self.particles_prop)}\n")
-            print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
-            print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
+            #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
+            #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
             self.particles_prev = self.particles.copy()
             self.particles = self.particles_prop.copy()
             
@@ -433,8 +433,8 @@ class AMCMHLocalizer:
         dtheta = normalize_angle(odom2[2] - odom1[2])
 
         # no translation -> pure rotation
-        if trans < 0.002:
-            return 0.0, 0.0, dtheta
+        #if trans < 0.008:
+        #    return 0.0, 0.0, dtheta
 
         rot1 = normalize_angle(np.arctan2(dy, dx) - odom1[2])
         rot2 = normalize_angle(dtheta - rot1)

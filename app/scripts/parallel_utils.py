@@ -113,37 +113,55 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
 
     for i in prange(N):
         x, y, theta = particles[i]
+        
+        # Grid coordinates for the robot body
+        mx_r = int((x - map_origin[0]) / map_resolution)
+        my_r = int((y - map_origin[1]) / map_resolution)
+        
+        # 1. BODY CHECK: Reject if outside map or inside/on a wall
+        if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
+            scores[i] = -50.0
+            continue
+            
+        # If distance to nearest wall is 0 (or very small), the robot is in a wall
+        robot_radius = 0.18
+
+        idx_r = my_r * width + mx_r
+        if distance_map[idx_r] <= robot_radius:
+            scores[i] = -50.0
+            continue
+
         log_score = 0.0
         valid_count = 0
 
-        for j in range(0,len(scan_ranges),step):
-            #if j % 10 != 0:  # downsample a cada 10 feixes
-            #    continue
-
+        for j in range(0, len(scan_ranges), step):
             r = scan_ranges[j]
-            if np.isfinite(r) and r < max_range:
-                valid_count += 1
+            if not np.isfinite(r) or r >= max_range or r <= 0:
+                continue
 
-                lx = x + r * np.cos(theta + angles[j])
-                ly = y + r * np.sin(theta + angles[j])
-                mx = int((lx - map_origin[0]) / map_resolution)
-                my = int((ly - map_origin[1]) / map_resolution)
+            lx = x + r * np.cos(theta + angles[j])
+            ly = y + r * np.sin(theta + angles[j])
+            
+            mx = int((lx - map_origin[0]) / map_resolution)
+            my = int((ly - map_origin[1]) / map_resolution)
 
-                if mx < 0 or mx >= width or my < 0 or my >= height:
-                    continue   # skip this beam
-                index = my * width + mx
-                dist = distance_map[index]
-                dist = min(dist, max_range)
-                p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
-                p_rand = 1.0 / max_range if np.isfinite(r) else 0.0
-                p = z_hit * p_hit + z_rand * p_rand
-                p = max(p, 1e-6)  # evita log(0)
-                log_score += np.log(p)
+            if mx < 0 or mx >= width or my < 0 or my >= height:
+                log_score += np.log(1e-7)
+                continue 
+            
+            # 2. SENSOR SCORE: distance_map[idx] is distance to nearest wall
+            # We WANT this to be 0 for a perfect match
+            dist = distance_map[my * width + mx]
+            
+            p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
+            p = z_hit * p_hit + z_rand * (1.0 / max_range)
+            log_score += np.log(p + 1e-9)
+            valid_count += 1
 
         if valid_count > 0:
-            scores[i] = log_score/valid_count 
+            scores[i] = log_score / valid_count 
         else:
-            scores[i] = -50  # penaliza partículas cegas
+            scores[i] = -50.0
 
     return scores
 
@@ -267,9 +285,9 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
 
     for i in prange(N):
         
-        num = likelihoods[i] + trans_backward[i] + 1e-10
-        den = old_weights[i] + trans_forward[i] + 1e-10
-        frac = num/den
+        num = log_dist_post[i] + log_trans_backward[i] + 1e-10
+        den = log_dist_pre[i] + log_trans_forward[i] + 1e-10
+        frac = np.exp(num - den)
         alpha = min(1.0, frac) if den > 0 else 1.0
         alpha_array[i] = alpha
 
@@ -347,7 +365,7 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
-    max_attempts = 1000
+    max_attempts = 100
     nfloor = 0.00001
     dynamic_floor = nfloor * min(1.0, trans*20 + abs(rot1) + abs(rot2))
 
@@ -356,9 +374,9 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     for i in prange(num_particles):
         success = False
         for _ in range(max_attempts):
-            r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans) + dynamic_floor)
-            t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)) + dynamic_floor)
-            r2_hat = rot2 + np.random.normal(0, a5 * abs(rot2) + a6 * abs(trans) + dynamic_floor)
+            r1_hat = rot1 + np.random.normal(0, a1 * rot1**2 + a2 * (trans)**2 + dynamic_floor)
+            t_hat = trans + np.random.normal(0, a3 * trans**2 + a4 * ((rot1)**2 + (rot2)**2) + dynamic_floor)
+            r2_hat = rot2 + np.random.normal(0, a1 * rot2**2 + a2 * (trans)**2 + dynamic_floor)
             delta_hat = np.array([r1_hat, t_hat, r2_hat])
             x, y, theta = particles[i]
             x_new = x + t_hat * np.cos(theta + r1_hat)

@@ -16,10 +16,10 @@ def rebuild_error_file_from_pose(pose_path, results_dir):
         next(f)  # skip header
         for line in f:
             vals = line.strip().split(",")
-            if len(vals) != 7:
+            if len(vals) != 8:
                 continue
 
-            _, est_x, est_y, est_yaw, gt_x, gt_y, gt_yaw = map(float, vals)
+            _, est_x, est_y, est_yaw, gt_x, gt_y, gt_yaw, mh_rate = map(float, vals)
 
             # Position error
             pos_error = np.sqrt((est_x - gt_x)**2 + (est_y - gt_y)**2)
@@ -48,10 +48,10 @@ def rebuild_error_file_from_pose(pose_path, results_dir):
             next(pf)
             for line in pf:
                 vals = line.strip().split(",")
-                if len(vals) != 7:
+                if len(vals) != 8:
                     continue
 
-                t, est_x, est_y, est_yaw, gt_x, gt_y, gt_yaw = map(float, vals)
+                t, est_x, est_y, est_yaw, gt_x, gt_y, gt_yaw, mh_rate = map(float, vals)
 
                 pos_error = np.sqrt((est_x - gt_x)**2 + (est_y - gt_y)**2)
                 yaw_diff = np.arctan2(

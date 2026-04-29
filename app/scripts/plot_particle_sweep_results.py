@@ -114,6 +114,7 @@ def calculate_path_rmse(est, gt):
 def load_trajectory(filepath):
     est = []
     gt = []
+    mh = []  # if MH rate is included in the file, we can also load it here for later analysis
     try:
         with open(filepath, 'r') as f:
             next(f)  # skip header
@@ -130,14 +131,16 @@ def load_trajectory(filepath):
                 gt_x = float(parts[4])
                 gt_y = float(parts[5])
                 gt_yaw = float(parts[6])
+                mh_rate = float(parts[7]) if len(parts) > 7 else 0.0
 
                 est.append((est_x, est_y, est_yaw))
                 gt.append((gt_x, gt_y, gt_yaw))
+                mh.append(mh_rate)
 
     except Exception as e:
         print(f"Erro lendo trajetória {filepath}: {e}")
 
-    return np.array(est), np.array(gt)
+    return np.array(est), np.array(gt), mh
 
 def unpack_best_per_algo(summary_path, trajectories, current_scenario):
     best_runs = {}
@@ -166,7 +169,7 @@ def unpack_best_per_algo(summary_path, trajectories, current_scenario):
                         print(f"Warning: Found {fname} in summary but no trajectory data loaded.")
     return best_runs
 
-def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, styles=None):
+def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, mh_rate_path, styles=None):
 
     plt.figure(figsize=(8, 6))
 
@@ -179,6 +182,7 @@ def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, styl
 
         est = best_run["est"]
         gt = best_run["gt"]
+        mh = best_run.get("mh")
 
         x_gt, y_gt = gt[:, 0], gt[:, 1]
         x_est, y_est = est[:, 0], est[:, 1]
@@ -299,6 +303,34 @@ def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, styl
     plt.savefig(ate_path, dpi=200)
     plt.close()
 
+    # ---------------- MH RATE CURVE ----------------
+    plt.figure(figsize=(8, 6))
+
+    for algo, (particles, rmse, best_run) in best_per_algo.items():
+
+        if best_run is None:
+            continue
+
+        mh = best_run.get("mh", [])
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-'})
+
+        plt.plot(
+            mh,
+            label=f'{algo} ({particles}p)',
+            linestyle=style['linestyle'],
+            color=style['color']
+        )
+
+    plt.title(f"MH Rate Comparison - {scenario}")
+    plt.xlabel("Timestep")
+    plt.ylabel("MH Rate")
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(mh_rate_path, dpi=200)
+    plt.close()
+
     print(f"Combined best path plot saved: {best_path}")
 
 def main():
@@ -334,12 +366,13 @@ def main():
 
             if algo and particles:
                 path = os.path.join(results_dir, filename)
-                est, gt = load_trajectory(path)
+                est, gt, mh = load_trajectory(path)
                 if est.size > 0:
                     clean_path = filename.replace("poses_", "")
                     trajectories[clean_path] = {
                             "est": est,
                             "gt": gt,
+                            "mh": mh
                     }
                     print(f"Trajetória carregada: {filename} | {scenario} | {algo} | {particles}p")
 
@@ -389,12 +422,14 @@ def main():
 
         best_path = os.path.join(plots_dir, f"{scenario}_best_paths_all.png")
         ate_path = os.path.join(plots_dir, f"{scenario}_ate_all.png")
+        mh_rate_path = os.path.join(plots_dir, f"{scenario}_mh_rate_all.png")
 
         plot_best_paths_all_algos(
             scenario,
             best_per_algo,
             best_path,
             ate_path,
+            mh_rate_path,
             styles
         )
         
@@ -436,6 +471,7 @@ def generate_html_report(all_data, results_dir, same_dir=False):
         best_path_plot = f"{scenario}_best_paths_all.png"
         ate_curve_plot = f"{scenario}_ate_all.png"
         best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
+        mh_rate_plot = f"{scenario}_mh_rate_all.png"
 
         if not same_dir:
             plots_dir = "plots"
@@ -449,6 +485,7 @@ def generate_html_report(all_data, results_dir, same_dir=False):
                 <img src="{plots_dir}/{std_yaw_plot}">
                 <img src="{plots_dir}/{best_path_plot}">
                 <img src="{plots_dir}/{best_path_yaw_plot}">
+                <img src="{plots_dir}/{mh_rate_plot}">
             </div>
             """
 
@@ -462,6 +499,7 @@ def generate_html_report(all_data, results_dir, same_dir=False):
                 <img src="{std_yaw_plot}">
                 <img src="{best_path_plot}">
                 <img src="{best_path_yaw_plot}">
+                <img src="{mh_rate_plot}">
             </div>
             """
 
