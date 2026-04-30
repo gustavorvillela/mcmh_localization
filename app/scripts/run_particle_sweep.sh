@@ -5,11 +5,11 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
-MODES=("MCL" "AMHMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 1000 2500 5000)  # valores de partículas a testar
+MODES=("MCL" "MHMCL")  # Pode ajustar conforme quiser
+PARTICLE_COUNTS=( 500 1000 2500 )  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=2   # número de repetições por configuração
+REPEATS=3   # número de repetições por configuração
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
 
@@ -83,7 +83,9 @@ for BAG in "${BAGS[@]}"; do
                 rosparam set /min_particles $((PCOUNT / 10))
                 roslaunch mcmh_localization test_algs.launch \
                     mode:=$MODE \
-                    result_name:=$RESULT_NAME &
+                    result_name:=$RESULT_NAME \
+                    robot_name:="turtlebot3_burger" \
+                    &
 
                 LAUNCH_PID=$!
                 ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
@@ -116,8 +118,10 @@ source /opt/ros/noetic/setup.bash
 source ~/catkin_ws/devel/setup.bash
 
 PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep_results.py"
+EVAL_SCRIPT="$(rospack find mcmh_localization)/scripts/offline_evaluate.py"
 
 if [ -f "$PLOT_SCRIPT" ]; then
+    python3 "$EVAL_SCRIPT"  # Gera CSVs de avaliação
     python3 "$PLOT_SCRIPT"
 else
     echo "Erro: script de plot não encontrado!"

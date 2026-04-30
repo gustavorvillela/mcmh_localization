@@ -5,9 +5,15 @@
 
   <!-- World -->
   <arg name="world" default="world"/>
+  <arg name="x_pos" default="-0.7"/>
+  <arg name="y_pos" default="-1.0"/>
 
   <!-- Gazebo com mapa e TurtleBot -->
-  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_$(arg world).launch" />
+  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_$(arg world).launch"> 
+    <arg name="x_pos" value="$(arg x_pos)"/>
+    <arg name="y_pos" value="$(arg y_pos)"/>
+  </include>
+
   <include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch" />
 
   <!-- Teleoperação do TurtleBot-->

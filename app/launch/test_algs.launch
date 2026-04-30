@@ -2,6 +2,7 @@
   <!-- Argumentos -->
   <arg name="bag_file" default="$(env BAG_FILE)"/>
   <arg name="mode" default="MCL"/>
+  <arg name="robot_name" default="turtlebot3_waffle"/>
 
   <!-- Define nome do arquivo de resultado (sem extensão) -->
   <arg name="result_name" default=""/>
@@ -17,7 +18,7 @@
     <param name="result_name" value="$(find mcmh_localization)/results/$(arg name_ext)$(arg result_name)"/>
     <param name="est_topic" value="/mcmh_estimated_pose"/>
     <param name="gt_topic" value="/gazebo/model_states"/>
-    <param name="robot_name" value="turtlebot3_waffle"/>
+    <param name="robot_name" value="$(arg robot_name)"/>
   </node>
   
 
