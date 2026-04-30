@@ -9,7 +9,7 @@ MODES=("MCL" "MHMCL")  # Pode ajustar conforme quiser
 PARTICLE_COUNTS=( 500 1000 2500 )  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=5   # número de repetições por configuração
+REPEATS=3   # número de repetições por configuração
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
 

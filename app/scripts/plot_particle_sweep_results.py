@@ -478,28 +478,28 @@ def generate_html_report(all_data, results_dir, same_dir=False):
 
             html += f"""
             <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px;">
+                <img src="{plots_dir}/{ate_curve_plot}">
                 <img src="{plots_dir}/{rmse_plot}">
                 <img src="{plots_dir}/{std_plot}">
-                <img src="{plots_dir}/{ate_curve_plot}">
+                <img src="{plots_dir}/{best_path_yaw_plot}">
                 <img src="{plots_dir}/{yaw_plot}">
                 <img src="{plots_dir}/{std_yaw_plot}">
-                <img src="{plots_dir}/{best_path_plot}">
-                <img src="{plots_dir}/{best_path_yaw_plot}">
                 <img src="{plots_dir}/{mh_rate_plot}">
+                <img src="{plots_dir}/{best_path_plot}">
             </div>
             """
 
         else:
             html += f"""
             <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px;">
+                <img src="{ate_curve_plot}">
                 <img src="{rmse_plot}">
                 <img src="{std_plot}">
-                <img src="{ate_curve_plot}">
+                <img src="{best_path_yaw_plot}">
                 <img src="{yaw_plot}">
                 <img src="{std_yaw_plot}">
-                <img src="{best_path_plot}">
-                <img src="{best_path_yaw_plot}">
                 <img src="{mh_rate_plot}">
+                <img src="{best_path_plot}">
             </div>
             """
 
