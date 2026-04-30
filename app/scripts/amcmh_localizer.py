@@ -193,7 +193,6 @@ class AMCMHLocalizer:
                                                            self.dist_2d,self.resolution,self.origin_np)
             
         else:
-            rospy.loginfo("Inicializando partículas uniformemente no mapa")
             final_particles = generate_valid_particles(self.num_particles,
                                              self.map_data, self.resolution,
                                              self.origin_np[0], self.origin_np[1], self.width, self.height)
