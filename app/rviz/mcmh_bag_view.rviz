@@ -4,9 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /TF1
         - /TF1/Frames1
-        - /Path1
       Splitter Ratio: 0.5
     Tree Height: 718
   - Class: rviz/Selection
