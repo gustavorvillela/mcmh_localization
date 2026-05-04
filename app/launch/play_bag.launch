@@ -7,6 +7,7 @@
   <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
   <arg name="rviz" default="true"/>
   <arg name="params_file" default="amhmcl"/>
+  <arg name="pub_gt_path" default="true"/>
 
   <!-- ========================================================= -->
   <!-- Parameters -->
@@ -56,12 +57,14 @@
   <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen"/>
 
   <!-- Nó para broadcast da pose verdadeira -->
-  <node name="gt_broadcaster" pkg="mcmh_localization" type="gt_broadcaster.py" output="screen" />
-  <node name="gt_path" pkg="mcmh_localization" type="gt_path.py" output="screen" />
+  <group if="$(arg pub_gt_path)">
+    <node name="gt_broadcaster" pkg="mcmh_localization" type="gt_broadcaster.py" output="screen" />
+    <node name="gt_path" pkg="mcmh_localization" type="gt_path.py" output="screen" />
+  </group>
 
   <!-- Bag player with simulated clock -->  
   <node pkg="rosbag" type="play" name="play_bag"
-    args="--clock --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen" />
+    args="--clock --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen"/>
 
 
   <!-- ========================================================= -->
@@ -71,7 +74,7 @@
         type="rqt_plot"
         name="rqt_plot" 
         args="/mh_rate"
-        launch-prefix="bash -c 'sleep 2; exec $0 $@'"
+        launch-prefix="bash -c 'sleep 5; exec $0 $@'"
         output="screen">
   </node>
 

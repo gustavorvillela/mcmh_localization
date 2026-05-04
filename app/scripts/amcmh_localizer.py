@@ -13,7 +13,7 @@ from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
 from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
 import message_filters
-
+import time
 
 class AMCMHLocalizer:
     def __init__(self):
@@ -42,6 +42,7 @@ class AMCMHLocalizer:
         self.dt = 0.02 #intervalo de tempo do scan
 
         self.delta = (0.0, 0.0, 0.0)  # (rot1, trans, rot2)
+        self.odom_eps = 1e-6
 
         # Parâmetros KLD
         self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
@@ -99,13 +100,15 @@ class AMCMHLocalizer:
         self.load_map()
 
         # Inicializa partículas
-        self.particles = self.initialize_particles()
+        self.particles = self.initialize_particles().astype(np.float32)
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = np.copy(self.particles_prop)
         self.weights = np.ones(self.num_particles) / self.num_particles
         self.weights_viz = self.weights.copy()
 
         self.last_odom = None
+
+        self.warmup_numba()
         
         # Subscribers
         scan_sub = message_filters.Subscriber('/scan', LaserScan)
@@ -184,6 +187,84 @@ class AMCMHLocalizer:
         # Keep typed references for Numba calls (1D arrays)
         self.map_data = self.map_data.astype(np.int8)
         self.distance_map = self.distance_map.astype(np.float32)
+
+    def warmup_numba(self):
+
+        rospy.loginfo("Warming up numba kernels...")
+        t = time.time()
+        dummy_particles = self.particles[:5].astype(np.float32)
+        dummy_weights = np.ones(5, dtype=np.float32) / 5
+
+        dummy_scan = np.ones(10, dtype=np.float32)
+        dummy_angles = np.linspace(-1.0, 1.0, 10, dtype=np.float32)
+
+        dummy_delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+        # motion model
+        apply_motion_model_parallel(
+            dummy_particles,
+            dummy_delta,
+            self.alpha,
+            self.map_data,
+            self.resolution,
+            self.origin_np[0],
+            self.origin_np[1],
+            self.width,
+            self.height
+        )
+
+        # sensor model
+        compute_likelihoods(
+            dummy_scan,
+            dummy_angles,
+            dummy_particles,
+            self.distance_map,
+            self.resolution,
+            self.origin_np,
+            self.width,
+            self.height,
+            self.sigma_hit,
+            self.z_hit,
+            self.z_rand,
+            self.max_range,
+            self.step,
+            self.z_short,
+            self.z_max,
+            self.lambda_short
+        )
+
+        # MH
+        if self.use_mh:
+            mh_resampling(
+                dummy_particles,
+                dummy_particles.copy(),
+                dummy_weights,
+                dummy_weights
+            )
+
+        
+        if self.use_adaptive:
+            # KLD
+            kld_sampling_amcl(
+                dummy_particles,
+                dummy_weights,
+                self.kld_bin_size_xy,
+                self.kld_bin_size_theta,
+                self.kld_epsilon,
+                self.kld_z,
+                10,
+                5
+            )
+        else:
+            # LVR
+            low_variance_resample_numba(
+                dummy_particles,
+                dummy_weights,
+                5
+            )
+
+
+        rospy.loginfo(f"Numba warmup done in {time.time() - t:.2f} seconds.")
 
     def initialize_particles(self):
 
@@ -406,21 +487,25 @@ class AMCMHLocalizer:
 
         if self.last_odom is not None:
 
-            self.delta = self.compute_motion(self.last_odom, current_odom)
-            
-            self.particles_prop, deltas = apply_motion_model_parallel(self.particles,self.delta,self.alpha,
-                                                              self.map_data, self.resolution,
-                                                              self.origin_np[0], self.origin_np[1],
-                                                              self.width,self.height)
-            
-            #rospy.loginfo(f"Partículas movidas: {len(self.particles_prop)}\n")
-            #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
-            #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
-            self.particles_prev = self.particles.copy()
-            self.particles = self.particles_prop.copy()
-            
+            self.delta = np.array(self.compute_motion(self.last_odom, current_odom), dtype=np.float32)
         
+        else:
+
+            self.delta = np.array((0.0, 0.0, 0.0), dtype=np.float32)
+            print("[DEBUG] First odometry received, no motion applied.")
+            
+        self.particles_prop, _ = apply_motion_model_parallel(self.particles,self.delta,self.alpha,
+                                                          self.map_data, self.resolution,
+                                                          self.origin_np[0], self.origin_np[1],
+                                                          self.width,self.height)
         
+        #rospy.loginfo(f"Partículas movidas: {len(self.particles_prop)}\n")
+        #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
+        #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
+        self.particles_prev = self.particles.copy()
+        self.particles = self.particles_prop.copy()
+
+                
         self.last_odom = current_odom
 
 
@@ -430,10 +515,6 @@ class AMCMHLocalizer:
         trans = np.hypot(dx, dy)
 
         dtheta = normalize_angle(odom2[2] - odom1[2])
-
-        # no translation -> pure rotation
-        #if trans < 0.008:
-        #    return 0.0, 0.0, dtheta
 
         rot1 = normalize_angle(np.arctan2(dy, dx) - odom1[2])
         rot2 = normalize_angle(dtheta - rot1)
@@ -655,12 +736,19 @@ class AMCMHLocalizer:
         # 1. MOVE: Apply Odometry first
         # This keeps particles_prev and particles at the same size
         #print("[DEBUG] Sync callback triggered: moving particles with odometry...")
+        t = time.time()
         self.move_particles(odom_msg) 
+        #print(f"[DEBUG] Particle movement took {time.time() - t:.4f} seconds")
         
         # 2. WEIGHT: Use the LiDAR scan to update weights
         #print("[DEBUG] Updating weights with LiDAR scan...")
+        t = time.time()
         self.update_scans(scan_msg)
+        #print(f"[DEBUG] Scan processing took {time.time() - t:.4f} seconds")
+
+        t = time.time()
         weights_pre, weights_post = self.update_weights()
+        #print(f"[DEBUG] Weight update took {time.time() - t:.4f} seconds")
         
         # 3. MH STEP: Perform MH resampling
         if self.use_mh:
@@ -669,16 +757,21 @@ class AMCMHLocalizer:
             weights = weights_post
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
+        t = time.time()
         if self.use_adaptive:
             self.update_acml_weights(weights)
             self.resample_amcl_kld()
         else:
             self.weights = weights
             self.resample_lvr()
+        #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 
         # 5. PUBLISH
-        self.publish_estimate()
+        t = time.time()
+        
         self.publish_particles()
+        self.publish_estimate()
+        #print(f"[DEBUG] Publishing took {time.time() - t:.4f} seconds")
 
 if __name__ == '__main__':
     try:

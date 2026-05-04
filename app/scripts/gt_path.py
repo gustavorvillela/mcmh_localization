@@ -12,7 +12,7 @@ class GroundTruthPath:
         # Parameters
         self.robot_name = rospy.get_param("~robot_name", "turtlebot3_waffle")
         self.frame_id = rospy.get_param("~frame_id", "map")
-        self.max_path_length = rospy.get_param("~max_path_length", 1000)
+        self.max_path_length = rospy.get_param("~max_path_length", 2000)
 
         # Publisher
         self.path_pub = rospy.Publisher("/ground_truth/path", Path, queue_size=10)
@@ -20,27 +20,31 @@ class GroundTruthPath:
         # Path message
         self.path = Path()
         self.path.header.frame_id = self.frame_id
-        self.last_stamp = rospy.Time(0)
+        self.last_update_time = rospy.Time(0)
+        self.publish_period = rospy.Duration(0.1)  # 10 Hz
 
         # Subscriber
         rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback)
 
         rospy.loginfo(f"[GT PATH] Tracking robot: {self.robot_name}")
 
-        self.rate = rospy.Rate(10)  # 10 Hz
 
     def callback(self, msg):
         if self.robot_name not in msg.name:
             return
 
         i = msg.name.index(self.robot_name)
+         
         pose = msg.pose[i]
+        now = rospy.Time.now()
 
         now = rospy.Time.now()
 
-        if now == self.last_stamp:
+        if (now - self.last_update_time) < self.publish_period:
             return
-        self.last_stamp = now
+
+        self.last_update_time = now
+
         # Build PoseStamped
         pose_stamped = PoseStamped()
         pose_stamped.header.stamp = now
@@ -52,11 +56,13 @@ class GroundTruthPath:
 
         # Append to path
         self.path.header.stamp = now
+        
+
         self.path.poses.append(pose_stamped)
 
         # Limit path length
-        #if len(self.path.poses) > self.max_path_length:
-        #    self.path.poses.pop(0)
+        if len(self.path.poses) > self.max_path_length:
+            self.path.poses.pop(0)
 
         # Publish
         self.path_pub.publish(self.path)
