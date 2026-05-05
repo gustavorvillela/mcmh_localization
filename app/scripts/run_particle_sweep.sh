@@ -6,10 +6,11 @@
 #   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
 
 MODES=("MCL" "MHMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=( 500 1000 2500 )  # valores de partículas a testar
+PARTICLE_COUNTS=(250 500 1000 2000 4000)  # valores de partículas a testar
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=3   # número de repetições por configuração
+REPEATS=30   # número de repetições por configuração
+MODEL= "turtlebot3_$TURTLEBOT3_MODEL"  # modelo do TurtleBot3 (waffle ou burger)
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
 
@@ -84,7 +85,7 @@ for BAG in "${BAGS[@]}"; do
                 roslaunch mcmh_localization test_algs.launch \
                     mode:=$MODE \
                     result_name:=$RESULT_NAME \
-                    robot_name:="turtlebot3_burger" \
+                    robot_name:=$MODEL \
                     &
 
                 LAUNCH_PID=$!

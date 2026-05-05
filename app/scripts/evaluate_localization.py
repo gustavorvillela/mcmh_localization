@@ -12,7 +12,7 @@ class Evaluator:
         self.est_topic = rospy.get_param("~est_topic", "/estimated_pose")
         self.gt_topic = rospy.get_param("~gt_topic", "/gazebo/model_states")
         self.mh_topic = rospy.get_param("~mh_topic", "/mh_rate")
-        self.robot_name = rospy.get_param("~robot_name", "turtlebot3_burguer")
+        self.robot_name = rospy.get_param("~robot_name", "turtlebot3_waffle")
 
         result_param = rospy.get_param("~result_name", "eval")
         result_name = os.path.basename(result_param).replace(".txt", "")
@@ -40,8 +40,8 @@ class Evaluator:
 
     def estimated_callback(self, msg):
         if self.gt_pose is None:
-            #print("Waiting for ground truth pose...")
-            #print(f"Robot name: {self.robot_name}")
+            print("Waiting for ground truth pose...")
+            print(f"Robot name: {self.robot_name}")
             return
 
         # Use ROS timestamp (better than wall time)
