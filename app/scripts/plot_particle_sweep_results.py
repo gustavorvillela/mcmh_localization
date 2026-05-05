@@ -128,7 +128,7 @@ def load_trajectory(filepath):
                 est_x = float(parts[1])
                 est_y = float(parts[2])
                 est_yaw = float(parts[3])
-                gt_x = float(parts[4])
+                gt_x = float(parts[4]) + 0.7
                 gt_y = float(parts[5])
                 gt_yaw = float(parts[6])
                 mh_rate = float(parts[7]) if len(parts) > 7 else 0.0

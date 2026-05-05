@@ -1,6 +1,6 @@
 <launch>
   <!-- Argumentos -->
-  <arg name="world" default="world"/>
+  <arg name="world" default="stage_bin"/>
   <arg name="record" default="true"/>
   <arg name="bag_name" default="sim_bag"/>
 

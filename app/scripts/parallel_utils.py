@@ -113,6 +113,9 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
 
     for i in prange(N):
         x, y, theta = particles[i]
+
+        cos_table = np.cos(theta + angles)
+        sin_table = np.sin(theta + angles)
         
         # Grid coordinates for the robot body
         mx_r = int((x - map_origin[0]) / map_resolution)
@@ -139,8 +142,8 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             if not np.isfinite(r) or r >= max_range or r <= 0:
                 continue
 
-            lx = x + r * np.cos(theta + angles[j])
-            ly = y + r * np.sin(theta + angles[j])
+            lx = x + r * cos_table[j]
+            ly = y + r * sin_table[j]
             
             mx = int((lx - map_origin[0]) / map_resolution)
             my = int((ly - map_origin[1]) / map_resolution)
@@ -367,16 +370,16 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
 
     max_attempts = 100
     nfloor = 0.00001
-    dynamic_floor = nfloor * min(1.0, trans*20 + abs(rot1) + abs(rot2))
+    #dynamic_floor = nfloor * min(1.0, trans*20 + abs(rot1) + abs(rot2))
 
     deltas = np.zeros((num_particles, 3), dtype=np.float64)
 
     for i in prange(num_particles):
         success = False
         for _ in range(max_attempts):
-            r1_hat = rot1 + np.random.normal(0, a1 * rot1**2 + a2 * (trans)**2 + dynamic_floor)
-            t_hat = trans + np.random.normal(0, a3 * trans**2 + a4 * ((rot1)**2 + (rot2)**2) + dynamic_floor)
-            r2_hat = rot2 + np.random.normal(0, a1 * rot2**2 + a2 * (trans)**2 + dynamic_floor)
+            r1_hat = rot1 + np.random.normal(0, a1 * rot1**2 + a2 * (trans)**2 + nfloor)
+            t_hat = trans + np.random.normal(0, a3 * trans**2 + a4 * ((rot1)**2 + (rot2)**2) + nfloor)
+            r2_hat = rot2 + np.random.normal(0, a1 * rot2**2 + a2 * (trans)**2 + nfloor)
             delta_hat = np.array([r1_hat, t_hat, r2_hat])
             x, y, theta = particles[i]
             x_new = x + t_hat * np.cos(theta + r1_hat)
