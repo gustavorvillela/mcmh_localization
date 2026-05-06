@@ -18,7 +18,7 @@
 #localization_mode: "MHMCL"  
 initialized: False
 use_sim_time: True
-init_particles: 2000
+init_particles: 1000
 headless: True  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
 #=======================================
