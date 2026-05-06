@@ -815,6 +815,7 @@ class AMCMHLocalizer:
             weights, self.particles, acc_rate = self.update_particles_mh(weights_pre, weights_post)
         else:
             weights = weights_post
+            acc_rate = 0.0
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
         t = time.time()
