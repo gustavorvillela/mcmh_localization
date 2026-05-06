@@ -3,7 +3,7 @@ import numpy as np
 
 @njit
 def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, grid_height):
-  """Raycasting para encontrar obstáculos."""
+  """Raycasting to find obstacles."""
   x, y = pose[0], pose[1]
   dx = np.cos(angle)
   dy = np.sin(angle)
@@ -14,15 +14,15 @@ def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, gri
       current_x = x + i * step_size * dx
       current_y = y + i * step_size * dy
 
-      # Converte para coordenadas do grid
+    # Convert to grid coordinates
       grid_x = int((current_x - limits[0]) / resolution)
       grid_y = int((current_y - limits[2]) / resolution)
 
-      # Verifica limites
+    # Check limits
       if not (0 <= grid_x < grid_width and 0 <= grid_y < grid_height):
           return max_range
 
-      # Verifica ocupação
+    # Check occupancy
       if grid_map[grid_y, grid_x] > 0.5:
           return i * step_size
 
@@ -35,26 +35,26 @@ def gaussian_prob(diff, sigma):
 
 @njit
 def p_hit(z, z_expected, sigma_hit, max_range):
-    """Probabilidade de hit - medição correta."""
+    """Probability of hit - correct measurement."""
     if 0 <= z <= max_range:
         return (1 / (np.sqrt(2*np.pi) * sigma_hit)) * np.exp(-0.5 * ((z - z_expected) / sigma_hit)**2)
     return 0.0
 
 @njit
 def p_short(z, z_expected, lambda_short):
-    """Probabilidade de short - obstáculo mais próximo do que o esperado."""
+    """Probability of short - obstacle closer than expected."""
     if 0 <= z <= z_expected:
         return lambda_short * np.exp(-lambda_short * z)
     return 0.0
 
 @njit
 def p_max(z, max_range):
-    """Probabilidade de max - sensor retornando valor máximo."""
+    """Probability of max - sensor returning maximum value."""
     return 1.0 if abs(z - max_range) < 0.001 else 0.0
 
 @njit
 def p_rand(z, max_range):
-    """Probabilidade de rand - medição aleatória."""
+    """Probability of rand - random measurement."""
     return 1.0 / max_range if 0 <= z <= max_range else 0.0
 
 
@@ -62,19 +62,19 @@ def p_rand(z, max_range):
 @njit
 def normalize_angle(theta):
     """
-    Normaliza ângulo para o intervalo [-pi, pi].
+    Normalize angle to the range [-pi, pi].
     """
     return (theta + np.pi) % (2 * np.pi) - np.pi
 
 @njit(parallel=True)
 def normalize_angle_array(angles, mean_angle):
     """
-    Normaliza vetor de ângulos em relação ao ângulo médio.
+    Normalize an array of angles relative to the mean angle.
     Args:
-        angles: (N,) array de ângulos
-        mean_angle: float, ângulo médio
+        angles: (N,) array of angles
+        mean_angle: float, mean angle
     Returns:
-        (N,) array de ângulos normalizados
+        (N,) array of normalized angles
     """
     n = angles.shape[0]
     result = np.empty(n, dtype=np.float32)
@@ -303,7 +303,7 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
     return new_particles, new_weights, acc_rate
 
 #=======================================================================
-# Funções de motion model
+# Motion model functions
 #=======================================================================
 
 @njit(parallel=True)
@@ -393,12 +393,12 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
                 break
 
         if not success:
-            new_particles[i] = particles[i]  # fallback: mantém partícula antiga
+            new_particles[i] = particles[i]  # fallback: keep old particle
 
     return new_particles, deltas
 
 #=======================================================================
-# Funções de resample e validação
+# Resample and validation functions
 #=======================================================================
 
 @njit
@@ -415,7 +415,7 @@ def compute_valid_indices(particles, map_data, map_resolution, origin_x, origin_
         if 0 <= mx < width and 0 <= my < height:
             index = my * width + mx
 
-            if map_data[index] <= 10:  # livre
+            if map_data[index] <= 10:  # free
                 valid_indices.append(i)
 
     return np.array(valid_indices, dtype=np.int32)
@@ -483,8 +483,7 @@ def low_variance_resample_numba(particles, weights, N):
 
 
 @njit
-def generate_valid_particles(num_particles,
-                             map_data, map_resolution, origin_x, origin_y,width,height):
+def generate_valid_particles(num_particles, map_data, map_resolution, origin_x, origin_y,width,height):
     max_trials = max(50 * num_particles, 500)
     x = np.random.uniform(origin_x, origin_x + width * map_resolution, size=max_trials)
     y = np.random.uniform(origin_y, origin_y + height * map_resolution, size=max_trials)
@@ -532,23 +531,23 @@ def low_variance_resample_amcl(particles, weights, target_size):
         while U > c and i < N - 1:
             i += 1
             c += weights[i]
-        new_particles[m] = particles[i % N]  # % N para evitar overflow
+        new_particles[m] = particles[i % N]  # % N to avoid overflow
 
     return new_particles, np.full(target_size, 1.0/target_size)
 
 @njit(parallel=True)
 def reinitialize_particles_numba(num_new, occupancy_map, res, origin_x, origin_y):
     new_particles = np.empty((num_new, 3), dtype=np.float32)
-    valid_cells = np.argwhere(occupancy_map == 0)  # Pré-computa células válidas
+    valid_cells = np.argwhere(occupancy_map == 0)  # Precompute valid cells
     
-    # Caso não haja células válidas (improvável)
+    # If there are no valid cells (unlikely)
     if len(valid_cells) == 0:
         for i in prange(num_new):
             new_particles[i] = np.array([origin_x, origin_y, np.random.uniform(-np.pi, np.pi)])
         return new_particles
     
     for i in prange(num_new):
-        # Amostra diretamente de células válidas
+        # Sample directly from valid cells
         idx = np.random.randint(0, len(valid_cells))
         my, mx = valid_cells[idx]  # Note a ordem (y,x)
         
@@ -566,19 +565,19 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
                        epsilon, z, max_samples, min_particles):
     
     '''
-    KLD-sampling para AMCL.
-    Resampling com critério de parada baseado em Kullback-Leibler Divergence.
+    KLD-sampling for AMCL.
+    Resampling with stopping criterion based on Kullback-Leibler Divergence.
     Args:
-        particles: (N, 3) array de partículas
-        weights: (N,) array de pesos normalizados
-        bin_size_xy: tamanho da célula em x e y (metros)
-        bin_size_theta: tamanho da célula em theta (radianos)   
-        epsilon: erro máximo permitido
-        z: valor z para intervalo de confiança
-        max_samples: número máximo de amostras
-        min_particles: número mínimo de partículas
+        particles: (N, 3) array of particles
+        weights: (N,) array of normalized weights
+        bin_size_xy: cell size in x and y (meters)
+        bin_size_theta: cell size in theta (radians)
+        epsilon: maximum allowed error
+        z: z-value for confidence interval
+        max_samples: maximum number of samples
+        min_particles: minimum number of particles
     Returns:
-        sampled_particles: (M, 3) array de partículas amostradas
+        sampled_particles: (M, 3) array of sampled particles
         
     '''
     bins = set()
@@ -599,12 +598,12 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
         
         p = particles[i]
         
-        # Adiciona ruído gaussiano
+        # Add Gaussian noise
         noisy_particle = np.empty(3, dtype=np.float64)
         for j in range(3):
             noisy_particle[j] = p[j] + np.random.normal(0, noise_std[j])
         
-        # Atualiza bins
+        # Update bins
         x_bin = int(noisy_particle[0] / bin_size_xy)
         y_bin = int(noisy_particle[1] / bin_size_xy)
         theta_bin = int(noisy_particle[2] / bin_size_theta)
@@ -614,7 +613,7 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
             bins.add(bin_id)
             k = len(bins)
             
-            # Critério de parada KLD
+            # KLD stopping criterion
             if k > 1 and count >= min_particles:
                 chi2 = (k-1)*(1 - 2/(9*(k-1)) + np.sqrt(2/(9*(k-1)))*z)**3
                 if count > chi2/(2*epsilon):
@@ -624,7 +623,7 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
         count += 1
 
     
-    return sampled_particles[:count]  # Retorna apenas as amostradas
+    return sampled_particles[:count]  # Return only the sampled ones
 
 
 def initialize_gaussian_parallel(mean, cov, num_particles, distance_map, resolution, origin):
@@ -642,10 +641,10 @@ def validate_samples(samples, distance_map, resolution, origin):
         mx = int((sample[0] - origin[0]) / resolution)
         my = int((sample[1] - origin[1]) / resolution)
 
-        # Se inválido, zera — pode ajustar para lidar depois
+        # If invalid, zero it — can adjust handling later
         if 0 <= mx < distance_map.shape[1] and 0 <= my < distance_map.shape[0] and distance_map[my, mx] < 1.0:
             valid_particles[i] = sample
         else:
-            valid_particles[i] = np.array([0.0, 0.0, 0.0])  # Pode fazer pós-processamento depois
+            valid_particles[i] = np.array([0.0, 0.0, 0.0])  # Can post-process later
 
     return valid_particles

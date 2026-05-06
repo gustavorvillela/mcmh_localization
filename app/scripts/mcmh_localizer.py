@@ -16,13 +16,13 @@ class MCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
 
-        # Parâmetros
+        # Parameters
         self.num_particles = 2000
         self.alpha = np.array([0.05, 0.05, 0.05, 0.05], dtype=np.float32)
-        # Carrega o mapa
+        # Load the map
         self.load_map()
         
-        # Inicializa partículas
+        # Initialize particles
         self.particles = self.initialize_particles()
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = self.particles.copy()
@@ -62,7 +62,7 @@ class MCMHLocalizer:
 
         self.occupancy_map = np.where(self.map_data == 0, 0, 100)
         
-        # Processa células livres
+        # Process free cells
         free_cells = np.where(self.map_data == 0)
         self.free_cells_coords = np.column_stack((
             free_cells[1] * self.resolution + self.origin.x,
@@ -275,8 +275,8 @@ class MCMHLocalizer:
         pose.pose.pose.orientation.z = np.sin(mean_pose[2] / 2.0)
         pose.pose.pose.orientation.w = np.cos(mean_pose[2] / 2.0)
 
-        # Preenche a matriz de covariância (6x6 flatten)
-        # Usamos apenas as dimensões x, y, theta → [0,0], [1,1], [5,5]
+        # Fill the covariance matrix (6x6 flatten)
+        # We use only the dimensions x, y, theta -> [0,0], [1,1], [5,5]
         cov_flat = np.zeros(36)
         cov_flat[0] = cov[0, 0]           # x-x
         cov_flat[1] = cov[0, 1]           # x-y

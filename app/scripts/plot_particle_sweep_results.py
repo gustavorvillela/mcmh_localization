@@ -57,10 +57,10 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     stat_type = "Mean" if stat == "mean" else "Std Dev"
      
     ylabel = f"{path_type} - {stat_type} {measure}"
-    title = f"{path_type} RMSE {stat_type} vs Número de Partículas - {scenario}"
+    title = f"{path_type} RMSE {stat_type} vs Number of Particles - {scenario}"
 
     plt.title(title)
-    plt.xlabel("Número de Partículas")
+    plt.xlabel("Number of Particles")
     plt.ylabel(ylabel)
 
     for algo, results in data.items():
@@ -84,7 +84,7 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     plt.tight_layout()
     plt.savefig(plot_path, dpi=200)
     plt.close()
-    print(f"Gráfico salvo em: {plot_path}")
+    print(f"Plot saved at: {plot_path}")
 
 def calculate_yaw_rmse(est, gt):
     
@@ -138,7 +138,7 @@ def load_trajectory(filepath):
                 mh.append(mh_rate)
 
     except Exception as e:
-        print(f"Erro lendo trajetória {filepath}: {e}")
+        print(f"Error reading trajectory {filepath}: {e}")
 
     return np.array(est), np.array(gt), mh
 
@@ -374,10 +374,10 @@ def main():
                             "gt": gt,
                             "mh": mh
                     }
-                    print(f"Trajetória carregada: {filename} | {scenario} | {algo} | {particles}p")
+                    print(f"Loaded trajectory: {filename} | {scenario} | {algo} | {particles}p")
 
     if not data:
-        print("Nenhum dado válido encontrado.")
+        print("No valid data found.")
         return
 
     styles = {

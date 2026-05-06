@@ -18,16 +18,16 @@ import time
 class AMCMHLocalizer:
     def __init__(self):
         rospy.init_node('mcmh_localizer')
-        self.mode = rospy.get_param('localization_mode', '3MCL')  # padrão: MHAMCL
+        self.mode = rospy.get_param('localization_mode', 'MCL')  # default: MCL
         self.use_mh = 'MH' in self.mode
-        self.use_adaptive = 'AMCL' in self.mode  # AMCL ou MHAMCL usam KLD
-        self.meta = '3' in self.mode  # MHAMCL usa transição assimétrica
+        self.use_adaptive = 'AMCL' in self.mode  # AMCL or MHAMCL use KLD
+        self.meta = '3' in self.mode  # 3MCL or Meta-MH-MCL uses path history in MH step
 
-        rospy.loginfo(f"Modo de localização: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive},  Meta: {self.meta}")
+        rospy.loginfo(f"Localization mode: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive},  Meta: {self.meta}")
 
 
-        # Parâmetros gerais
-        self.num_particles = rospy.get_param('init_particles', 2000) # do not touch
+        # General parameters
+        self.num_particles = rospy.get_param('init_particles', 2000) 
         self.alpha = np.array([
                                 rospy.get_param('alpha1', 0.2),
                                 rospy.get_param('alpha2', 0.2),
@@ -36,48 +36,48 @@ class AMCMHLocalizer:
                                 rospy.get_param('alpha5', 0.2),
                                 rospy.get_param('alpha6', 0.2)
                             ], dtype=np.float32) #do not touch
-        self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # taxa de aprendizado lenta
-        self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # taxa de aprendizado rápida
+        self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # slow learning rate for AMCL
+        self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # fast learning rate for AMCL
 
-        self.dt = 0.02 #intervalo de tempo do scan
+        self.dt = 0.02 # scan time interval
 
         self.delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # (rot1, trans, rot2)
-        self.delta_path = np.empty((0, 3), dtype=np.float32)  # delta history for Meta-MH-MCL
+        self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
         self.odom_eps = 1e-6
 
         # Parâmetros KLD
         self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
         self.kld_delta = rospy.get_param('kld_delta', 0.99)
-        self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # metros
-        self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radianos
+        self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # meters
+        self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radians
         self.kld_n_max = self.num_particles
         self.kld_z = rospy.get_param('kld_z', 2)
 
-        self.initial_pose = None  # Armazenará a pose inicial [x, y, theta]
-        self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Covariância inicial (x, y em metros, theta em rad)
-        self.initialized = rospy.get_param('initialized', False)  # Flag para controle
+        self.initial_pose = None  # Will store the initial pose [x, y, theta]
+        self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Initial covariance (x, y in meters, theta in rad)
+        self.initialized = rospy.get_param('initialized', False)  # control flag
 
-        self.sigma_hit = rospy.get_param('sigma_hit', 0.2)  # Parâmetro para a função de probabilidade gaussiana
-        self.max_range = rospy.get_param('max_range', 10.0)  # Alcance máximo do LiDAR para considerar (em metros)
+        self.sigma_hit = rospy.get_param('sigma_hit', 0.2)  # Parameter for Gaussian probability function
+        self.max_range = rospy.get_param('max_range', 10.0)  # Maximum LiDAR range to consider (in meters)
         self.z_hit = rospy.get_param('z_hit', 0.8)  # Peso para a parte "hit"
         self.z_rand = rospy.get_param('z_rand', 0.2)  # Peso para a parte "random"
-        self.z_short = rospy.get_param('z_short', 0.05)  # Peso para a parte "short" (obstáculos inesperados)
-        self.z_max = rospy.get_param('z_max', 0.05)  # Peso para a parte "max" (leituras no alcance máximo)
-        self.lambda_short = rospy.get_param('lambda_short', 0.1)  # Lambda para a distribuição exponencial da parte "short"
-        self.step = rospy.get_param('step', 1)  # Usar cada 'step' medidas do LiDAR para acelerar
-        self.headless = rospy.get_param('headless', False)  # Se True, não publica marcadores para visualização
+        self.z_short = rospy.get_param('z_short', 0.05)  # Weight for the "short" part (unexpected obstacles)
+        self.z_max = rospy.get_param('z_max', 0.05)  # Weight for the "max" part (readings at maximum range)
+        self.lambda_short = rospy.get_param('lambda_short', 0.1)  # Lambda for exponential distribution of the "short" part
+        self.step = rospy.get_param('step', 1)  # Use every 'step' LiDAR measurements to speed up
+        self.headless = rospy.get_param('headless', False)  # If True, do not publish markers for visualization
         self.timeout = 10
 
         self.initial_pose_topic = rospy.get_param('initial_pose_topic', '/initial_pose')
 
         if self.initialized == True:
-            rospy.loginfo("Aguardando pose inicial (máx. %.1fs)..." % self.timeout)
+            rospy.loginfo("Waiting for initial pose (max %.1fs)..." % self.timeout)
 
-            # Primeiro verifica se o tópico existe
+            # First check if the topic exists
             try:
                 rospy.wait_for_message(self.initial_pose_topic, PoseWithCovarianceStamped, timeout=10.0)
             except rospy.ROSException:
-                rospy.logwarn("Tópico %s não encontrado. Verifique se o publisher está ativo." % self.initial_pose_topic)
+                rospy.logwarn("Topic %s not found. Check if the publisher is active." % self.initial_pose_topic)
                 pass
 
             
@@ -89,7 +89,7 @@ class AMCMHLocalizer:
                 pass
         
         else:
-            rospy.loginfo("Inicializando partículas uniformemente no mapa")
+            rospy.loginfo("Initializing particles uniformly on the map")
 
         #AMCL
         self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
@@ -97,13 +97,15 @@ class AMCMHLocalizer:
         self.w_slow = 1e-3
         self.w_fast = 1e-3
  
-        # Carrega o mapa
+        # Load map
         
         
         self.load_map()
 
-        # Inicializa partículas
-        self.particles = self.initialize_particles().astype(np.float32)
+        self.warmup_numba()
+
+        # Initialize particles
+        self.particles = self.initialize_particles(self.num_particles).astype(np.float32)
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = np.copy(self.particles_prop)
         self.weights = np.ones(self.num_particles) / self.num_particles
@@ -111,7 +113,7 @@ class AMCMHLocalizer:
 
         self.last_odom = None
 
-        self.warmup_numba()
+        
 
         self.odom_topic = rospy.get_param('odom_topic', '/odom')
         self.scan_topic = rospy.get_param('scan_topic', '/scan')
@@ -174,10 +176,10 @@ class AMCMHLocalizer:
         # occupancy_map (binary: 0 free, 1 occupied) for distance transform
         occupancy_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0
 
-        rospy.loginfo("Gerando mapa de distância...")
+        rospy.loginfo("Generating distance map...")
         self.dist_2d = distance_transform_edt(occupancy_binary == 0) * resolution
         self.distance_map = self.dist_2d.flatten().astype(np.float32)
-        rospy.loginfo("Mapa de distância gerado.")
+        rospy.loginfo("Distance map generated.")
 
         # free cell coordinates in world frame (consistent with map_2d ordering)
         free_rows, free_cols = np.where(map_2d == 0)  # row=y_index, col=x_index
@@ -202,11 +204,22 @@ class AMCMHLocalizer:
 
         rospy.loginfo("Warming up numba kernels...")
         t = time.time()
-        dummy_particles = self.particles[:5].astype(np.float32)
-        dummy_weights = np.ones(5, dtype=np.float32) / 5
 
-        dummy_scan = np.ones(10, dtype=np.float32)
-        dummy_angles = np.linspace(-1.0, 1.0, 10, dtype=np.float32)
+        N  = 5
+        Ns = 10
+        
+        if self.initialized:
+            particles = initialize_gaussian_parallel(self.initial_pose,self.initial_cov,N,
+                                                           self.dist_2d,self.resolution,self.origin_np).astype(np.float32)
+        else:
+            particles = generate_valid_particles(N, self.map_data, self.resolution, self.origin_np[0], self.origin_np[1], self.width, self.height)
+
+        
+        dummy_particles = particles.astype(np.float32)
+        dummy_weights = np.ones(N, dtype=np.float32) / N
+
+        dummy_scan = np.ones(Ns, dtype=np.float32)
+        dummy_angles = np.linspace(-1.0, 1.0, Ns, dtype=np.float32)
 
         dummy_delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)
 
@@ -276,15 +289,15 @@ class AMCMHLocalizer:
 
         rospy.loginfo(f"Numba warmup done in {time.time() - t:.2f} seconds.")
 
-    def initialize_particles(self):
+    def initialize_particles(self,num_particles=100):
 
         if self.initialized == True:
-            rospy.loginfo("Inicializando partículas com distribuição gaussiana")
-            final_particles = initialize_gaussian_parallel(self.initial_pose,self.initial_cov,self.num_particles,
+            rospy.loginfo("Initialize particles around initial pose with Gaussian distribution")
+            final_particles = initialize_gaussian_parallel(self.initial_pose,self.initial_cov,num_particles,
                                                            self.dist_2d,self.resolution,self.origin_np)
             
         else:
-            final_particles = generate_valid_particles(self.num_particles,
+            final_particles = generate_valid_particles(num_particles,
                                              self.map_data, self.resolution,
                                              self.origin_np[0], self.origin_np[1], self.width, self.height)
 
@@ -296,31 +309,31 @@ class AMCMHLocalizer:
         return final_particles
     
     def initial_pose_callback(self, msg):
-        """Callback para receber a pose inicial (geometry_msgs/PoseWithCovarianceStamped)"""
+        """Callback to receive the initial pose (geometry_msgs/PoseWithCovarianceStamped)"""
         pose = msg.pose.pose
         self.initial_pose = np.array([
             pose.position.x,
             pose.position.y,
-            self.get_yaw_from_quaternion(pose.orientation)  # Implemente esta função
+            self.get_yaw_from_quaternion(pose.orientation)  # Implement this function
         ])
         self.initialized = True
-        rospy.loginfo(f"Pose inicial recebida: {self.initial_pose}")
+        rospy.loginfo(f"Initial pose received: {self.initial_pose}")
 
     def wait_for_initial_pose(self, timeout=5.0):
         """
-        Espera a pose inicial por um tempo (em segundos). 
-        Se não receber dentro do tempo, segue com inicialização uniforme.
+        Wait for the initial pose for a given time (in seconds).
+        If not received within the timeout, proceed with uniform initialization.
         """
-        rospy.loginfo("Aguardando pose inicial (máx. %.1fs)..." % timeout)
+        rospy.loginfo("Waiting for initial pose (max %.1fs)..." % timeout)
         start_time = rospy.Time.now().to_sec()
         rate = rospy.Rate(10)
 
         while not rospy.is_shutdown():
             if self.initialized:
-                rospy.loginfo("Pose inicial recebida.")
+                rospy.loginfo("Initial pose received.")
                 break
             if rospy.Time.now().to_sec() - start_time > timeout:
-                rospy.logwarn("Timeout: pose inicial não recebida. Inicializando uniformemente.")
+                rospy.logwarn("Timeout: initial pose not received. Initializing uniformly.")
                 break
             rate.sleep()
 
@@ -383,7 +396,7 @@ class AMCMHLocalizer:
         self.weights = weights/np.sum(weights)
 
         # Atualiza w_slow e w_fast
-        w_avg = np.mean(self.weights)  # média dos pesos normalizados
+        w_avg = np.mean(self.weights)  # mean of normalized weights
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
 
@@ -425,7 +438,7 @@ class AMCMHLocalizer:
             weights_pre, weights_post = self.update_weights(particles_prev, particles_prop)
 
             # Probabilistic acceptance step to decide which particles to keep for the next iteration
-            mh_weights, mh_particles = self.update_particles_mh(weights_pre, weights_post)
+            mh_weights, mh_particles, _ = self.update_particles_mh(weights_pre, weights_post)
 
             # Meta particle and weight update: we accumulate the accepted particles and their weights across all deltas in the path history
             # so that the meta particles represent a more informed distribution that considers multiple recent movements, not just the last one. 
@@ -466,7 +479,7 @@ class AMCMHLocalizer:
 
             self.resample_lvr()
         
-        #rospy.loginfo("Publicando partículas")
+        # rospy.loginfo("Publishing particles")
         self.publish_particles()
         self.publish_estimate()
 
@@ -493,9 +506,9 @@ class AMCMHLocalizer:
     def update_particles_mh(self,weights_pre, weights_post):
 
         mh_particles, weights, acc_rate = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
-        self.acc_rate.publish(Float64(acc_rate))
         
-        return weights, mh_particles
+        
+        return weights, mh_particles, acc_rate
 
     #======================================================================
     # Odom
@@ -504,7 +517,7 @@ class AMCMHLocalizer:
 
     def odom_callback(self, msg):
 
-        #rospy.loginfo("Movendo partículas com odometria")
+        # rospy.loginfo("Moving particles with odometry")
         self.delta, current_odom = self.get_delta_odom(msg)
         current_path = self.delta_path.copy()
         self.delta_path = np.vstack((current_path,self.delta.reshape(1,3)))
@@ -544,7 +557,7 @@ class AMCMHLocalizer:
             
         self.particles_prop = self.update_particle_set(self.delta)
         
-        #rospy.loginfo(f"Partículas movidas: {len(self.particles_prop)}\n")
+        # rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
         #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
         #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
         self.particles_prev = self.particles.copy()
@@ -760,7 +773,7 @@ class AMCMHLocalizer:
         pose.pose.pose.orientation.w = np.cos(mean_theta / 2.0)
 
         # Preenche a matriz de covariância (6x6 flatten)
-        # Usamos apenas as dimensões x, y, theta → [0,0], [1,1], [5,5]
+        # We use only the dimensions x, y, theta -> [0,0], [1,1], [5,5]
         cov_flat = np.zeros(36)
         cov_flat[0] = cov[0, 0]           # x-x
         cov_flat[1] = cov[0, 1]           # x-y
@@ -799,7 +812,7 @@ class AMCMHLocalizer:
         
         # 3. MH STEP: Perform MH resampling
         if self.use_mh:
-            weights, self.particles = self.update_particles_mh(weights_pre, weights_post)
+            weights, self.particles, acc_rate = self.update_particles_mh(weights_pre, weights_post)
         else:
             weights = weights_post
 
@@ -816,6 +829,7 @@ class AMCMHLocalizer:
         # 5. PUBLISH
         t = time.time()
         
+        self.acc_rate.publish(Float64(acc_rate))
         self.publish_particles()
         self.publish_estimate()
         #print(f"[DEBUG] Publishing took {time.time() - t:.4f} seconds")
