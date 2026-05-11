@@ -259,6 +259,62 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     #print("MH acceptance rate:", acc_rate)
     return new_particles, new_weights, acc_rate
 
+
+@njit(parallel=True)
+def accumulate_meta_particles(
+    mh_particles,
+    mh_weights,
+    meta_xy,
+    meta_cos,
+    meta_sin,
+    meta_weights
+):
+
+    N = mh_particles.shape[0]
+
+    for i in prange(N):
+
+        w = mh_weights[i]
+
+        meta_weights[i] += w
+
+        meta_xy[i, 0] += w * mh_particles[i, 0]
+        meta_xy[i, 1] += w * mh_particles[i, 1]
+
+        theta = mh_particles[i, 2]
+
+        meta_cos[i] += w * np.cos(theta)
+        meta_sin[i] += w * np.sin(theta)
+
+@njit(parallel=True)
+def finalize_meta_particles(
+    meta_xy,
+    meta_cos,
+    meta_sin,
+    meta_weights
+):
+
+    N = meta_weights.shape[0]
+
+    particles = np.empty((N, 3), dtype=np.float32)
+
+    for i in prange(N):
+
+        w = meta_weights[i]
+
+        if w <= 1e-9:
+            w = 1.0
+
+        particles[i, 0] = meta_xy[i, 0] / w
+        particles[i, 1] = meta_xy[i, 1] / w
+
+        particles[i, 2] = np.arctan2(
+            meta_sin[i],
+            meta_cos[i]
+        )
+
+    return particles
+
 @njit(parallel=True)
 def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights, trans_forward, trans_backward):
 

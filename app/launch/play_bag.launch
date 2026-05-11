@@ -66,6 +66,7 @@
   <node pkg="rosbag" type="play" name="play_bag"
     args="--clock --rate=0.5 --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen"/>
 
+  
 
   <!-- ========================================================= -->
   <!-- Evaluation Node -->
@@ -77,6 +78,7 @@
         launch-prefix="bash -c 'sleep 10; exec $0 $@'"
         output="screen">
   </node>
+
 
   <!-- ========================================================= -->
   <!-- Optional RViz Visualization -->

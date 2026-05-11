@@ -18,8 +18,12 @@
 #localization_mode: "MHMCL"  
 initialized: False
 use_sim_time: True
-init_particles: 1000
+init_particles: 300
 headless: True  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
+
+
+meta_lambda: 0.9  # Exponential recency weighting factor for Meta-MH (0.7 to 0.9 is a common range)
+
 
 #=======================================
 # Motion model parameters
@@ -28,8 +32,8 @@ headless: True  # If True, the node will not publish visualization markers for p
 # Tune these parameters based on your robot's motion characteristics
 
 alpha1: 0.0015  # rotation noise due to rotation   - 0.02
-alpha2: 0.55  # rotation noise due to translation - 0.1 
-alpha3: 0.45  # translation noise due to translation - 0.1
+alpha2: 0.055  # rotation noise due to translation - 0.1 
+alpha3: 0.045  # translation noise due to translation - 0.1
 alpha4: 0.0007  # translation noise due to rotation - 0.2
 alpha5: 0.02  # additional noise for in-place rotation - 0.02
 alpha6: 0.04  # additional noise for in-place translation - 0.01
@@ -64,8 +68,8 @@ alpha_fast: 0.01  # fast learning rate
 # or using a learn intrinsic parameters method
 
 sigma_hit: 0.22
-z_hit: 0.8
-z_rand: 0.2
+z_hit: 0.75
+z_rand: 0.25
 max_range: 8.0
 step: 1
 

@@ -5,13 +5,13 @@ from numpy.random import choice
 import tf.transformations as tft
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Float64
-from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import PoseWithCovarianceStamped, Pose
+from nav_msgs.msg import Odometry, OccupancyGrid, Path
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, Point
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, compute_valid_indices, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple,compute_likelihoods_raycast, assym_mh_resampling, motion_model_odometry_parallel
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple, motion_model_odometry_parallel, accumulate_meta_particles, finalize_meta_particles
 import message_filters
 import time
 
@@ -44,6 +44,7 @@ class AMCMHLocalizer:
         self.delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # (rot1, trans, rot2)
         self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
         self.odom_eps = 1e-6
+        self.accept_odom = False
 
         # Parâmetros KLD
         self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
@@ -108,7 +109,26 @@ class AMCMHLocalizer:
         self.particles = self.initialize_particles(self.num_particles).astype(np.float32)
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = np.copy(self.particles_prop)
+        self.meta_particles = np.copy(self.particles)
+        
         self.weights = np.ones(self.num_particles) / self.num_particles
+        self.weights_pre = self.weights.copy()
+        self.scan_ranges = None
+        self.odom_count = 0
+        # Exponential recency weighting for Meta-MH
+        self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
+
+        # Equivalent decay factor
+        self.meta_decay = np.exp(-self.meta_lambda)
+
+        # Current recency multiplier
+        self.meta_time_weight = 1.0
+
+        self.meta_xy = self.meta_particles[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
+        self.meta_cos = np.cos(self.meta_particles[:, 2]).copy() * self.weights_pre
+        self.meta_sin = np.sin(self.meta_particles[:, 2]).copy() * self.weights_pre
+        
+        self.meta_weights = self.weights_pre.copy()  # Initialize meta weights as zeros
         self.weights_viz = self.weights.copy()
 
         self.last_odom = None
@@ -360,30 +380,52 @@ class AMCMHLocalizer:
     # Weights
     #======================================================================
 
+    def convert_scores(self,scores):
+
+        max_score = np.max(scores)
+        weights = np.zeros_like(scores)
+        weights = np.exp(scores - max_score)  # Subtract max for numerical stability
+        weights =  weights/np.sum(weights)
+
+        return weights
+
+    def calculate_weights(self, particles):
+
+        scores = compute_likelihoods(
+            self.scan_ranges, self.angles, particles,
+            self.distance_map, self.resolution, self.origin_np,
+            self.width, self.height,self.sigma_hit,
+            self.z_hit, self.z_rand, self.max_range, self.step,
+            self.z_short, self.z_max, self.lambda_short
+        )
+
+        weights = self.convert_scores(scores)
+
+        return weights
+
+    def calculate_unorm_weights(self, particles):
+
+        scores = compute_likelihoods(
+            self.scan_ranges, self.angles, particles,
+            self.distance_map, self.resolution, self.origin_np,
+            self.width, self.height,self.sigma_hit,
+            self.z_hit, self.z_rand, self.max_range, self.step,
+            self.z_short, self.z_max, self.lambda_short
+        )
+
+        max_score = np.max(scores)
+        weights = np.exp(scores)  # Subtract max for numerical stability
+
+        return weights
+
 
     def update_weights(self, particles_prev, particles_post):
 
         #print(f"[DEBUG] Calculating weights for {len(self.particles)} particles post and {len(self.particles_prev)} particles pre...")
 
-        scores_pre = compute_likelihoods(
-        self.scan_ranges, self.angles, particles_prev,
-        self.distance_map, self.resolution, self.origin_np,
-        self.width, self.height,self.sigma_hit,
-        self.z_hit, self.z_rand, self.max_range, self.step,
-        self.z_short, self.z_max, self.lambda_short
-        )
+        weights_pre = self.calculate_weights(particles_prev)
 
-        weights_pre = self.convert_scores(scores_pre)
-
-        scores_post = compute_likelihoods(
-        self.scan_ranges, self.angles, particles_post,
-        self.distance_map, self.resolution, self.origin_np,
-        self.width, self.height,self.sigma_hit,
-        self.z_hit, self.z_rand, self.max_range, self.step,
-        self.z_short, self.z_max, self.lambda_short
-        )
-
-        weights_post = self.convert_scores(scores_post)
+        weights_post = self.calculate_weights(particles_post)
 
         #print(f"[DEBUG] Nb weights pre: {len(weights_pre)} | Nb weights post: {len(weights_post)} | Nb particles: {len(self.particles)}")
 
@@ -408,81 +450,69 @@ class AMCMHLocalizer:
 
     def lidar_callback(self, msg):
 
+        self.accept_odom = False
+
+        # Reset exponential history
+        self.meta_time_weight = 1.0
+        #print(f"[DEBUG] Total odom steps used: {self.odom_count} | Resetting meta time weight.")
+        
+
+        weight_safe = self.meta_weights.copy()
+        weight_safe[weight_safe == 0] = 1e-6  # Avoid division by zero
+        #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
+        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
+        
+        self.odom_count = 0
+        meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
+
+        self.meta_particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
+        #print(f"[DEBUG] Meta particles after incorporating path history (before scan update): {self.meta_particles}")
         self.update_scans(msg)
-        
-        current_deltas = self.delta_path.copy()
+        self.particles = self.meta_particles.copy()  # Update particles to the meta particles before resampling, so that the resampling step works with the updated distribution that incorporates the path history and the new scan information.
+        weights = self.calculate_weights(self.particles)  # Final weight update for the meta particles based on the current scan
 
-        Nd = len(current_deltas)
-
-        particles_prev = self.particles.copy()
-
-        meta_particles = particles_prev.copy()
-
-        meta_weights = np.zeros(len(meta_particles))
-
-        # ==================================================================================================================
-        # Meta-MH-MCL loop: for each delta in the delta, we simulate the motion, compute weights, and perform MH resampling.
-        # ==================================================================================================================
-
-        for r in range(Nd):
-
-            # Simulate movement for each delta in the path history (Meta-MH-MCL)
-            delta = current_deltas[r]
-
-            particles_prop = apply_motion_model_parallel(particles_prev,delta,self.alpha,
-                                                          self.map_data, self.resolution,
-                                                          self.origin_np[0], self.origin_np[1],
-                                                          self.width,self.height)
-        
-            # Calculate weights for both sets (pre and post motion) to use in MH step
-            weights_pre, weights_post = self.update_weights(particles_prev, particles_prop)
-
-            # Probabilistic acceptance step to decide which particles to keep for the next iteration
-            mh_weights, mh_particles, _ = self.update_particles_mh(weights_pre, weights_post)
-
-            # Meta particle and weight update: we accumulate the accepted particles and their weights across all deltas in the path history
-            # so that the meta particles represent a more informed distribution that considers multiple recent movements, not just the last one. 
-            # This is the core idea of Meta-MH-MCL.
-            meta_weights += mh_weights
-
-            meta_particles += mh_particles
-
-        # ============================
-        # Final meta particles update
-        # ============================
-        self.particles = meta_particles / Nd
-        weights = meta_weights / Nd
-        
+        #print(f"[DEBUG] Final meta particles (before normalization): {self.particles} | weights: {weights}")
         # ==========================
         # Final meta weights update
         # ==========================
-
+        
         if self.use_adaptive:
-
+        
             self.update_acml_weights(weights)
-
+        
         else:
-
+        
             self.weights = weights
 
         # =======================
         # Publish and resampling
         # =======================
-
         #rospy.loginfo("Publicando pose estimada")
         
+        
         if self.use_adaptive:
-
+        
             self.resample_amcl_kld()
-
+        
         else:
-
+        
             self.resample_lvr()
         
+        self.meta_particles = self.particles.copy()  # Update meta particles for the next iteration
+        self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
+
+        #print(f"[DEBUG] Finished lidar callback")
+
+        self.meta_weights = self.calculate_unorm_weights(self.meta_particles)  # Update meta weights for the next iteration
+
+        self.meta_xy = self.meta_particles[:, :2] * self.meta_weights[:, np.newaxis]  # Update meta xy for the next iteration
+        self.meta_cos = np.cos(self.meta_particles[:, 2]) * self.meta_weights  # Update meta cos for the next iteration
+        self.meta_sin = np.sin(self.meta_particles[:, 2]) * self.meta_weights  # Update meta sin for the next iteration
+
+        self.accept_odom = True
         # rospy.loginfo("Publishing particles")
         self.publish_particles()
         self.publish_estimate()
-
 
     def update_scans(self,scan):
 
@@ -494,18 +524,16 @@ class AMCMHLocalizer:
         return np.linspace(scan.angle_min, scan.angle_max, num_ranges, dtype=np.float32)
     
 
-    def convert_scores(self,scores):
+    
 
-        #max_score = np.max(scores)
-        #weights = np.zeros_like(scores)
-        weights = np.exp(scores)
-        weights =  weights/np.sum(weights)
+    def update_particles_mh(self,weights_pre, weights_post, particles_prev=None, particles_post=None):
 
-        return weights
+        if particles_prev is None:
+            particles_prev = self.particles_prev.copy()
+        if particles_post is None:
+            particles_post = self.particles_prop.copy()
 
-    def update_particles_mh(self,weights_pre, weights_post):
-
-        mh_particles, weights, acc_rate = mh_resampling(self.particles_prev,self.particles,weights_post,weights_pre)
+        mh_particles, weights, acc_rate = mh_resampling(particles_prev,particles_post,weights_post,weights_pre)
         
         
         return weights, mh_particles, acc_rate
@@ -516,12 +544,61 @@ class AMCMHLocalizer:
 
 
     def odom_callback(self, msg):
+        
+        if not self.accept_odom:
+            return
 
-        # rospy.loginfo("Moving particles with odometry")
+        #rospy.loginfo("Moving particles with odometry")
         self.delta, current_odom = self.get_delta_odom(msg)
-        current_path = self.delta_path.copy()
-        self.delta_path = np.vstack((current_path,self.delta.reshape(1,3)))
+        #current_path = self.delta_path.copy()
+        #self.delta_path = np.vstack((current_path,self.delta.reshape(1,3)))
+
+        # apply motion model and update particles 
+        # mh particles updated here and particles (meta-particles in 3MCL) in the lidar callback 
+        # after processing the scan with the new path history
+        self.particles_prop, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
+                                                          self.map_data, self.resolution,
+                                                          self.origin_np[0], self.origin_np[1],
+                                                          self.width,self.height)
+  
+        # compute weights for particles before and after motion to use in MH step.
+        #print(f"[DEBUG] Proposed particles after motion : {self.particles_prop}")
+
+        self.weights_post = self.calculate_unorm_weights(self.particles_prop)
+
+
+        # MH step to decide which particles to keep for the next iteration, with update on meta set
+        # being made on lidar callback after processing the new scan.
+
+        mh_weights, mh_particles, _ = self.update_particles_mh(self.weights_pre, self.weights_post,
+                                                               self.particles_prev, self.particles_prop)
+
+        mh_xy = mh_particles[:, :2]
+        mh_cos = np.cos(mh_particles[:, 2])
+        mh_sin = np.sin(mh_particles[:, 2])
+
+        # Meta distribution update: we accumulate the accepted particles and their weights across all deltas in the path history for a given
+        # scan, so that the meta particles represent a more informed distribution that considers multiple recent movements, not just the
+        # last one. This is the core idea of Meta-MH-MCL.
+
+        # Older samples get exponentially less importance
+        self.meta_xy *=  self.meta_decay
+        self.meta_cos *=  self.meta_decay
+        self.meta_sin *=  self.meta_decay
+        self.meta_weights *=  self.meta_decay
+
+        self.meta_xy +=  mh_xy * mh_weights[:, np.newaxis]
+        self.meta_cos +=  mh_cos * mh_weights
+        self.meta_sin += mh_sin * mh_weights
+        self.meta_weights += mh_weights
+        
+        self.meta_time_weight *= self.meta_decay  # Decay the time weight for the next iteration
+
+        self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration
+
+        self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
         self.last_odom = current_odom   
+        self.odom_count += 1
 
     def get_delta_odom(self,msg):
 
@@ -534,7 +611,7 @@ class AMCMHLocalizer:
 
         if self.last_odom is not None:
 
-            delta = self.compute_motion(self.last_odom, current_odom)        
+            delta = np.array(self.compute_motion(self.last_odom, current_odom), dtype=np.float32)        
         else:
 
             delta = np.array((0.0, 0.0, 0.0), dtype=np.float32)
@@ -712,9 +789,10 @@ class AMCMHLocalizer:
         clear_marker.action = Marker.DELETEALL
         marker_array.markers.append(clear_marker)
 
-        weights = self.weights[:len(self.particles)]
-        norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
 
+        weights = self.calculate_weights(self.particles)
+        norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+        #print(f"[DEBUG] Publishing {len(self.particles)} particles with normalized weights (min: {norm_weights.min():.4f}, max: {norm_weights.max():.4f})")
         marker_id =0
         for p, w in zip(self.particles, norm_weights):
             if not self.is_valid_position(p[0], p[1]):
