@@ -1,57 +1,72 @@
 #!/bin/bash
-
-# Executa variações na quantidade de partículas
+# run_particle_sweep.sh
+# ─────────────────────────────────────────────────────────────────────────────
+# Executa variações de partículas para cada cenário (C/M/A) e bag.
+#
 # Uso:
-#   ./run_particle_sweep.sh
-#   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
+#   ./run_particle_sweep.sh                     # todos os bags, todos os cenários
+#   ./run_particle_sweep.sh L_rest.bag          # só esse bag, todos os cenários
+#   ./run_particle_sweep.sh --scenario C        # todos os bags, só cenário C
+#   ./run_particle_sweep.sh L_rest.bag --scenario M
+#
+# Estrutura de saída:
+#   results/
+#     C/                  ← conservador
+#       house/
+#         house_MCL_1000p_run1.txt
+#         poses_house_MCL_1000p_run1.txt
+#     M/                  ← médio
+#     A/                  ← agressivo
+# ─────────────────────────────────────────────────────────────────────────────
 
-MODES=("MCL" "AMHMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 1000 2500 5000)  # valores de partículas a testar
-RESULTS_DIR="$(rospack find mcmh_localization)/results"
-DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=2   # número de repetições por configuração
-mkdir -p "$RESULTS_DIR"
-echo "Cleaning previous results..."
+MODES=("MCL" "AMCL")
+PARTICLE_COUNTS=(1000)
+REPEATS=1
 
-# Remove only generated result files (safe filter)
-find "$RESULTS_DIR" -type f \( \
-    -name "*.txt" -o \
-    -name "*.html" \
-\) -delete
+PKG_DIR="$(rospack find mcmh_localization)"
+DEFAULT_BAG_DIR="$PKG_DIR/bags"
+BASE_RESULTS_DIR="$PKG_DIR/results"
+PARAMS_DIR="$PKG_DIR/params"
 
-PLOTS_DIR="$RESULTS_DIR/plots"
-mkdir -p "$PLOTS_DIR"
+# ── Mapa de cenário → yaml ────────────────────────────────────────────────
+declare -A SCENARIO_YAML
+SCENARIO_YAML["C"]="$PARAMS_DIR/amhmcl_conservative.yaml"
+SCENARIO_YAML["M"]="$PARAMS_DIR/amhmcl_medium.yaml"
+SCENARIO_YAML["A"]="$PARAMS_DIR/amhmcl_aggressive.yaml"
 
-echo "Cleaning plot images..."
+ALL_SCENARIOS=("C" "M" "A")
 
-find "$PLOTS_DIR" -type f -name "*.png" -delete
+# ── Parse de argumentos ───────────────────────────────────────────────────
+SELECTED_SCENARIOS=()
+BAG_ARGS=()
 
-export ROS_MASTER_URI=http://localhost:11311
-export ROS_HOSTNAME=localhost
-############################################
-# Start roscore if it is not already running
-############################################
-if ! pgrep -f roscore > /dev/null; then
-    echo "Starting roscore..."
-    roscore &
-    ROSCORE_PID=$!
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --scenario)
+            shift
+            SELECTED_SCENARIOS+=("$1")
+            ;;
+        *)
+            BAG_ARGS+=("$1")
+            ;;
+    esac
+    shift
+done
+
+# Se nenhum cenário especificado, roda todos
+if [ ${#SELECTED_SCENARIOS[@]} -eq 0 ]; then
+    SELECTED_SCENARIOS=("${ALL_SCENARIOS[@]}")
 fi
 
-echo "Waiting for roscore..."
-until rostopic list >/dev/null 2>&1; do
-    sleep 1
-done
-echo "roscore is ready!"
-# Determina origem dos bags
-if [ $# -eq 0 ]; then
+# ── Determina bags ────────────────────────────────────────────────────────
+if [ ${#BAG_ARGS[@]} -eq 0 ]; then
     BAGS=("$DEFAULT_BAG_DIR"/*.bag)
 else
     BAGS=()
-    for ARG in "$@"; do
+    for ARG in "${BAG_ARGS[@]}"; do
         if [ ! -f "$ARG" ] && [ ! -d "$ARG" ]; then
             ARG="$DEFAULT_BAG_DIR/$ARG"
         fi
-
         if [ -f "$ARG" ]; then
             BAGS+=("$ARG")
         elif [ -d "$ARG" ]; then
@@ -68,57 +83,129 @@ else
     fi
 fi
 
-# Loop principal: para cada bag, modo e número de partículas
-for BAG in "${BAGS[@]}"; do
-    BAG_NAME=$(basename "$BAG" .bag)
-    for MODE in "${MODES[@]}"; do
-        for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
-            for ((i=1; i<=REPEATS; i++)); do
-                echo "=== Rodando $MODE com $BAG ($PCOUNT partículas, execução $i/$REPEATS) ==="
-                export BAG_FILE="$BAG"
-                RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
+# ── Limpeza seletiva por cenário ──────────────────────────────────────────
+echo "=== Limpando resultados anteriores dos cenários selecionados ==="
+for SCENARIO in "${SELECTED_SCENARIOS[@]}"; do
+    SCENARIO_DIR="$BASE_RESULTS_DIR/$SCENARIO"
+    if [ -d "$SCENARIO_DIR" ]; then
+        echo "  Limpando $SCENARIO_DIR ..."
+        find "$SCENARIO_DIR" -type f \( -name "*.txt" -o -name "*.html" -o -name "*.png" \) -delete
+    fi
+    mkdir -p "$SCENARIO_DIR"
+done
 
-                rosparam set /init_particles "$PCOUNT"
-                rosparam set /max_particles $((PCOUNT * 2))
-                rosparam set /min_particles $((PCOUNT / 10))
-                roslaunch mcmh_localization test_algs.launch \
-                    mode:=$MODE \
-                    result_name:=$RESULT_NAME &
+# ── roscore ───────────────────────────────────────────────────────────────
+export ROS_MASTER_URI=http://localhost:11311
+export ROS_HOSTNAME=localhost
 
-                LAUNCH_PID=$!
-                ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
-                wait $LAUNCH_PID
-                kill $WATCHDOG_PID 2>/dev/null
+ROSCORE_PID=""
+if ! pgrep -f roscore > /dev/null; then
+    echo "Iniciando roscore..."
+    roscore &
+    ROSCORE_PID=$!
+fi
 
-                if ps -p $LAUNCH_PID > /dev/null; then
-                    echo "Processo travado, matando roslaunch (PID $LAUNCH_PID)"
-                    kill $LAUNCH_PID
-                fi
+echo "Aguardando roscore..."
+until rostopic list >/dev/null 2>&1; do sleep 1; done
+echo "roscore pronto!"
 
-                sleep 5
+# ── Loop principal ────────────────────────────────────────────────────────
+for SCENARIO in "${SELECTED_SCENARIOS[@]}"; do
+
+    YAML_FILE="${SCENARIO_YAML[$SCENARIO]}"
+
+    if [ ! -f "$YAML_FILE" ]; then
+        echo "ERRO: YAML não encontrado para cenário $SCENARIO: $YAML_FILE"
+        continue
+    fi
+
+    echo ""
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║  CENÁRIO: $SCENARIO  →  $(basename $YAML_FILE)"
+    echo "╚══════════════════════════════════════════════════╝"
+
+    # Carrega parâmetros do cenário
+    rosparam load "$YAML_FILE"
+
+    for BAG in "${BAGS[@]}"; do
+        BAG_NAME=$(basename "$BAG" .bag)
+        RESULTS_DIR="$BASE_RESULTS_DIR/$SCENARIO/$BAG_NAME"
+        mkdir -p "$RESULTS_DIR/plots"
+
+        echo ""
+        echo "  ── Bag: $BAG_NAME ──"
+
+        for MODE in "${MODES[@]}"; do
+            for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
+                for ((i=1; i<=REPEATS; i++)); do
+
+                    RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
+
+                    echo "    → $MODE | ${PCOUNT}p | run${i}"
+
+                    export BAG_FILE="$BAG"
+
+                    rosparam set /init_particles "$PCOUNT"
+                    rosparam set /max_particles  $((PCOUNT * 2))
+                    rosparam set /min_particles  $((PCOUNT / 10))
+
+                    roslaunch mcmh_localization test_algs.launch \
+                        mode:=$MODE \
+                        result_name:="$RESULTS_DIR/$RESULT_NAME" &
+
+                    LAUNCH_PID=$!
+                    ( sleep 100 && kill $LAUNCH_PID 2>/dev/null ) &
+                    WATCHDOG_PID=$!
+
+                    wait $LAUNCH_PID
+                    kill $WATCHDOG_PID 2>/dev/null
+
+                    if ps -p $LAUNCH_PID > /dev/null 2>&1; then
+                        echo "    Processo travado, matando (PID $LAUNCH_PID)"
+                        kill $LAUNCH_PID
+                    fi
+
+                    sleep 5
+                done
             done
         done
+
+        # ── offline_evaluate para este bag/cenário ────────────────────
+        echo "    Calculando métricas offline: $RESULTS_DIR"
+        OFFLINE_SCRIPT="$PKG_DIR/scripts/offline_evaluate.py"
+        if [ -f "$OFFLINE_SCRIPT" ]; then
+            RESULTS_OVERRIDE="$RESULTS_DIR" python3 "$OFFLINE_SCRIPT"
+        fi
+
     done
 done
 
-
-############################################
-# Stop roscore
-############################################
-if [ ! -z "$ROSCORE_PID" ]; then
-    kill $ROSCORE_PID
+# ── Para roscore se foi iniciado por este script ──────────────────────────
+if [ -n "$ROSCORE_PID" ]; then
+    kill $ROSCORE_PID 2>/dev/null
 fi
 
-# Gerar plots
-echo "Gerando plots..."
+# ── Gera plots para cada cenário/bag ─────────────────────────────────────
+echo ""
+echo "=== Gerando plots ==="
 
 source /opt/ros/noetic/setup.bash
 source ~/catkin_ws/devel/setup.bash
 
-PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep_results.py"
+PLOT_SCRIPT="$PKG_DIR/scripts/plot_particle_sweep_results.py"
 
 if [ -f "$PLOT_SCRIPT" ]; then
-    python3 "$PLOT_SCRIPT"
+    for SCENARIO in "${SELECTED_SCENARIOS[@]}"; do
+        SCENARIO_DIR="$BASE_RESULTS_DIR/$SCENARIO"
+        if [ -d "$SCENARIO_DIR" ]; then
+            echo "  Plotando cenário $SCENARIO ..."
+            RESULTS_OVERRIDE="$SCENARIO_DIR" python3 "$PLOT_SCRIPT"
+        fi
+    done
 else
-    echo "Erro: script de plot não encontrado!"
+    echo "Erro: script de plot não encontrado em $PLOT_SCRIPT"
 fi
+
+echo ""
+echo "=== Concluído! ==="
+echo "Resultados em: $BASE_RESULTS_DIR/{C,M,A}/<bag_name>/"

@@ -1,0 +1,51 @@
+#======================================
+# amhmcl_conservative.yaml
+# Perfil: CONSERVADOR (C)
+# Baixo ruído no motion model → confia mais no sensor
+# Mais partículas → maior cobertura, menor risco de perder a pose
+# Sensor model mais estrito → aceita só leituras com boa correspondência
+#======================================
+
+localization_mode: "MCL"
+initialized: False
+init_particles: 1000
+headless: False
+
+#=======================================
+# Motion model — ruído baixo
+# O robô se move de forma previsível; poucos erros de odometria esperados
+#=======================================
+alpha1: 0.005   # rotation noise due to rotation    ← metade do padrão
+alpha2: 0.006   # translation noise due to rotation ← metade do padrão
+alpha3: 0.004   # rotation noise due to translation ← metade do padrão
+alpha4: 0.002   # translation noise due to translation ← metade do padrão
+alpha5: 0.010   # additional noise for in-place rotation
+alpha6: 0.015   # additional noise for in-place translation
+
+#=======================================
+# KLD Resampling — mais partículas
+#=======================================
+kld_epsilon: 0.03        # tolerância menor → mais partículas para cobrir o espaço
+kld_z: 0.99
+kld_bin_size_xy: 0.10    # bins menores → resolução espacial maior
+kld_bin_size_theta: 0.15
+kld_delta: 0.95
+min_particles: 500
+max_particles: 5000
+
+#=======================================
+# AMCL
+#=======================================
+alpha_slow: 0.0005
+alpha_fast: 0.005
+
+#=======================================
+# Sensor model — criterioso
+# sigma menor → rejeita leituras ruidosas
+# z_hit alto   → confia mais no modelo de hit
+#=======================================
+sigma_hit: 0.20
+z_hit: 0.85
+z_rand: 0.10
+max_range: 8.0
+step: 1

@@ -1,0 +1,51 @@
+#======================================
+# amhmcl_aggressive.yaml
+# Perfil: AGRESSIVO (A)
+# Alto ruído no motion model → aceita maior incerteza de odometria
+# Menos partículas → mais rápido, maior risco de perda de hipótese
+# Sensor model permissivo → aceita leituras mais ruidosas
+#======================================
+
+localization_mode: "MCL"
+initialized: False
+init_particles: 250
+headless: False
+
+#=======================================
+# Motion model — ruído alto
+# Assume que a odometria é pouco confiável; espalha mais as partículas
+#=======================================
+alpha1: 0.020   # rotation noise due to rotation    ← 2x o padrão
+alpha2: 0.025   # translation noise due to rotation ← 2x o padrão
+alpha3: 0.016   # rotation noise due to translation ← 2x o padrão
+alpha4: 0.008   # translation noise due to translation ← 2x o padrão
+alpha5: 0.040   # additional noise for in-place rotation
+alpha6: 0.060   # additional noise for in-place translation
+
+#=======================================
+# KLD Resampling — menos partículas, mais rápido
+#=======================================
+kld_epsilon: 0.10        # tolerância maior → menos partículas necessárias
+kld_z: 0.95
+kld_bin_size_xy: 0.25    # bins maiores → menos resolução, mais velocidade
+kld_bin_size_theta: 0.35
+kld_delta: 0.80
+min_particles: 50
+max_particles: 1000
+
+#=======================================
+# AMCL — reage rápido a divergências
+#=======================================
+alpha_slow: 0.005
+alpha_fast: 0.050
+
+#=======================================
+# Sensor model — permissivo
+# sigma maior → aceita leituras com mais ruído
+# z_rand maior → tolera mais discrepâncias
+#=======================================
+sigma_hit: 0.50
+z_hit: 0.60
+z_rand: 0.35
+max_range: 8.0
+step: 1
