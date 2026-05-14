@@ -75,7 +75,7 @@
         type="rqt_plot"
         name="rqt_plot" 
         args="/mh_rate"
-        launch-prefix="bash -c 'sleep 10; exec $0 $@'"
+        launch-prefix="bash -c 'sleep 7; exec $0 $@'"
         output="screen">
   </node>
 

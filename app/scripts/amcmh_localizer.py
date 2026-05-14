@@ -11,7 +11,10 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 from scipy.spatial import KDTree
 from scipy.ndimage import distance_transform_edt
-from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, normalize_angle, generate_valid_particles, low_variance_resample_numba, normalize_angle_array, kld_sampling_amcl, initialize_gaussian_parallel,parallel_resample_simple, motion_model_odometry_parallel, accumulate_meta_particles, finalize_meta_particles
+from parallel_utils import compute_likelihoods, mh_resampling, apply_motion_model_parallel, apply_random_walk_parallel,\
+                        normalize_angle, generate_valid_particles, low_variance_resample_numba, normalize_angle_array,\
+                        kld_sampling_amcl,initialize_gaussian_parallel,parallel_resample_simple, motion_model_odometry_parallel,\
+                        accumulate_meta_particles, finalize_meta_particles
 import message_filters
 import time
 
@@ -118,6 +121,7 @@ class AMCMHLocalizer:
 
         
         self.weights = np.ones(self.num_particles) / self.num_particles
+        
         self.weights_pre = self.weights.copy()
         self.scan_ranges = None
         self.last_scan = None
@@ -164,6 +168,8 @@ class AMCMHLocalizer:
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
+        self.publish_particles()
+        self.acc_rate.publish(Float64(1.0))
         
         rospy.spin()
         
@@ -261,6 +267,18 @@ class AMCMHLocalizer:
             self.width,
             self.height
         )
+
+        if self.meta:
+            apply_random_walk_parallel(
+                dummy_particles,
+                self.alpha,
+                self.map_data,
+                self.resolution,
+                self.origin_np[0],
+                self.origin_np[1],
+                self.width,
+                self.height
+            )
 
         # sensor model
         compute_likelihoods(
@@ -466,7 +484,6 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
         meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
         
-        self.odom_count = 0
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
         self.particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
@@ -577,7 +594,7 @@ class AMCMHLocalizer:
         # being made on lidar callback after processing the new scan.
 
         #print(f"[DEBUG] Performing MH resampling step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
-        mh_weights, mh_particles, _ = self.update_particles_mh(self.weights_pre, self.weights_post,
+        mh_weights, mh_particles, acc_rate = self.update_particles_mh(self.weights_pre, self.weights_post,
                                                                self.particles_prev, self.particles_prop)
 
         mh_xy = mh_particles[:, :2]
@@ -592,6 +609,8 @@ class AMCMHLocalizer:
             print(f"[DEBUG] New scan received, resetting meta distribution update for odometry updates until next scan.")
             return 
         
+        self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration, so that the next odometry update applies the motion model to the MH result that incorporates the path history up to this point.
+        self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
         # Older samples get exponentially less importance
         self.meta_xy *=  self.meta_decay
         self.meta_cos *=  self.meta_decay
@@ -604,6 +623,7 @@ class AMCMHLocalizer:
         self.meta_weights += mh_weights
 
         self.N_count = 0
+        self.acc_rate.publish(Float64(acc_rate))
 
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update, before MH random walk.")
         self.do_mh_random_walk = True  # Flag to indicate that we should perform MH random walk in the lidar callback after processing the new scan, so that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
@@ -699,27 +719,29 @@ class AMCMHLocalizer:
     
     def mh_random_walk(self, particles, weights):
 
-        delta = np.zeros(3, dtype=np.float32)
+        #delta = np.zeros(3, dtype=np.float32)
         particles_prev = particles.copy()
         weights_pre = weights.copy()
-        alpha_rw = self.alpha * 2
+        alpha_rw = self.alpha *1
         #alpha_rw[1:] = self.alpha[1:]*2  # Less noise on translation for random walk to keep it more focused on local exploration
-       
 
         for i in range(self.Nr):
 
-            
+            #noise = ((np.random.rand(3) - 0.5)*0.001).astype(np.float32)  # Random noise in range [-0.025, 0.025] for each component, can be tuned
+            #noise[1] *=10
+            #delta = noise # Add small random noise to the odometry delta for the random walk, to encourage exploration around the proposed particles from the MH step. The noise scale can be tuned based on the expected odometry uncertainty and desired exploration level.
 
-            particles_prop, _ = apply_motion_model_parallel(particles_prev,delta,alpha_rw,
-                                                                self.map_data, self.resolution,
-                                                                self.origin_np[0], self.origin_np[1],
-                                                                self.width,self.height)
+
+            particles_prop = apply_random_walk_parallel(particles_prev,alpha_rw,
+                                                           self.map_data, self.resolution,
+                                                           self.origin_np[0], self.origin_np[1],
+                                                           self.width,self.height)
 
             #particles_prev[:,2] = particles_prev[:,2]                                   
             
             weights_post = self.calculate_unorm_weights(particles_prop)
 
-            mh_weights, mh_particles, _ = self.update_particles_mh(weights_pre, weights_post,
+            mh_weights, mh_particles, acc_rate = self.update_particles_mh(weights_pre, weights_post,
                                                                 particles_prev, particles_prop)
 
             mh_xy = mh_particles[:, :2]
@@ -744,6 +766,7 @@ class AMCMHLocalizer:
             weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
             self.N_count += 1
             #print(f"[DEBUG] MH random walk step {i+1}/{self.Nr} completed.")
+            self.acc_rate.publish(Float64(acc_rate))
 
 
 
@@ -975,6 +998,7 @@ class AMCMHLocalizer:
 
         # 5. PUBLISH
         t = time.time()
+        self.weights = self.calculate_weights(self.particles)  # Recalculate weights for the new particle set after resampling, to use in the visualization and estimate publication. This is important because resampling changes the particle set and we want the published weights to reflect the current particles.
         
         self.acc_rate.publish(Float64(acc_rate))
         self.publish_particles()

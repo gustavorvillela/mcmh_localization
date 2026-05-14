@@ -123,7 +123,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         
         # 1. BODY CHECK: Reject if outside map or inside/on a wall
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
-            scores[i] = -50.0
+            scores[i] = -6.0
             continue
             
         # If distance to nearest wall is 0 (or very small), the robot is in a wall
@@ -131,7 +131,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
 
         idx_r = my_r * width + mx_r
         if distance_map[idx_r] <= robot_radius:
-            scores[i] = -50.0
+            scores[i] = -6.0
             continue
 
         log_score = 0.0
@@ -139,7 +139,8 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
 
         for j in range(0, len(scan_ranges), step):
             r = scan_ranges[j]
-            if not np.isfinite(r) or r >= max_range or r <= 0:
+            if not np.isfinite(r) or r >= max_range or r <= 0: # Treat invalid or max-range readings as random
+                log_score += np.log(z_rand * (1.0 / max_range) + 1e-6)
                 continue
 
             lx = x + r * cos_table[j]
@@ -148,23 +149,28 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             mx = int((lx - map_origin[0]) / map_resolution)
             my = int((ly - map_origin[1]) / map_resolution)
 
-            if mx < 0 or mx >= width or my < 0 or my >= height:
-                log_score += np.log(1e-7)
+            if mx < 0 or mx >= width or my < 0 or my >= height: # distance outside map is treated as random
+                log_score -= np.log(z_rand * (1.0 / max_range) + 1e-6)
                 continue 
             
             # 2. SENSOR SCORE: distance_map[idx] is distance to nearest wall
             # We WANT this to be 0 for a perfect match
             dist = distance_map[my * width + mx]
             
-            p_hit = np.exp(-0.5 * (dist ** 2) / (sigma_hit ** 2))
-            p = z_hit * p_hit + z_rand * (1.0 / max_range)
-            log_score += np.log(p + 1e-9)
+            p_hit = gaussian_prob(dist, sigma_hit)
+
+            p_short = 0.0
+            #if r < 1.0:
+            #    p_short = lambda_short * (1.0 - r)
+            p = z_hit * p_hit + z_rand * (1.0 / max_range) - p_short
+            log_score += np.log(p + 1e-6)
             valid_count += 1
 
-        if valid_count > 0:
-            scores[i] = log_score / valid_count 
-        else:
-            scores[i] = -50.0
+        #if valid_count > 0:
+        #    scores[i] = log_score #/ valid_count
+        #else:
+        #    scores[i] = -9.0
+        scores[i] = log_score
 
     return scores
 
@@ -243,13 +249,15 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     N = particles.shape[0]
     new_particles = particles.copy()
     new_weights = old_weights.copy()
+    log_dist_pre = np.log(old_weights + 1e-10)
+    log_dist_post = np.log(likelihoods + 1e-10)
 
     alpha_array = np.empty(N, dtype=np.float64)
 
     for i in prange(N):
         p_old = old_weights[i]
         p_new = likelihoods[i]
-        alpha = min(1.0, p_new / p_old) if p_old > 0 else 1.0
+        alpha = min(1.0, p_new / p_old) 
         alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
@@ -452,6 +460,38 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
             new_particles[i] = particles[i]  # fallback: keep old particle
 
     return new_particles, deltas
+
+
+@njit(parallel=True)
+def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, origin_x, origin_y, width, height):
+    num_particles = particles.shape[0]
+    new_particles = np.empty_like(particles)
+
+    a1, a2, a3, a4, _, _ = alpha_rw
+
+    for i in prange(num_particles):
+        x, y, theta = particles[i]
+        success = False
+
+        for _ in range(10):  # max attempts
+            r1_hat = np.random.normal(0, (a1**2+a2**2)/2)
+            t_hat = np.random.normal(0, (a3**2+a4**2)/2)
+            r2_hat = np.random.normal(0, (a1**2 + a2**2)/2)
+            delta_hat = np.array([r1_hat, t_hat, r2_hat])
+
+            x_new = x + t_hat * np.cos(theta + r1_hat)
+            y_new = y + t_hat * np.sin(theta + r1_hat)
+            theta_new = normalize_angle(theta + r1_hat + r2_hat)
+
+            if is_valid_position(x_new, y_new, map_data, width, height, map_resolution, origin_x, origin_y):
+                new_particles[i] = [x_new, y_new, theta_new]
+                success = True
+                break
+
+        if not success:
+            new_particles[i] = particles[i]  # fallback: keep old particle
+
+    return new_particles
 
 #=======================================================================
 # Resample and validation functions
