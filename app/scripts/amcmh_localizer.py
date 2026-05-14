@@ -67,6 +67,11 @@ class AMCMHLocalizer:
         self.lambda_short = rospy.get_param('lambda_short', 0.1)  # Lambda for exponential distribution of the "short" part
         self.step = rospy.get_param('step', 1)  # Use every 'step' LiDAR measurements to speed up
         self.headless = rospy.get_param('headless', False)  # If True, do not publish markers for visualization
+
+        self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
+        self.Nr = rospy.get_param("random_steps", 10)  # Number of random walk steps per odometry update
+
+
         self.timeout = 10
 
         self.initial_pose_topic = rospy.get_param('initial_pose_topic', '/initial_pose')
@@ -110,13 +115,14 @@ class AMCMHLocalizer:
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = np.copy(self.particles_prop)
         self.meta_particles = np.copy(self.particles)
+
         
         self.weights = np.ones(self.num_particles) / self.num_particles
         self.weights_pre = self.weights.copy()
         self.scan_ranges = None
+        self.last_scan = None
         self.odom_count = 0
         # Exponential recency weighting for Meta-MH
-        self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
 
         # Equivalent decay factor
         self.meta_decay = np.exp(-self.meta_lambda)
@@ -277,7 +283,7 @@ class AMCMHLocalizer:
         )
 
         # MH
-        if self.use_mh:
+        if self.use_mh or self.meta:
             mh_resampling(
                 dummy_particles,
                 dummy_particles.copy(),
@@ -450,25 +456,22 @@ class AMCMHLocalizer:
 
     def lidar_callback(self, msg):
 
-        self.accept_odom = False
-
-        # Reset exponential history
-        self.meta_time_weight = 1.0
-        #print(f"[DEBUG] Total odom steps used: {self.odom_count} | Resetting meta time weight.")
         
 
+        self.accept_odom = False
+        #print(f"[DEBUG] Total odom steps used: {self.odom_count}")
+
         weight_safe = self.meta_weights.copy()
-        weight_safe[weight_safe == 0] = 1e-6  # Avoid division by zero
+        weight_safe[weight_safe <1e-9 ] = 1  # Avoid division by zero
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
         meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
         
         self.odom_count = 0
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
-        self.meta_particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
+        self.particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
         #print(f"[DEBUG] Meta particles after incorporating path history (before scan update): {self.meta_particles}")
         self.update_scans(msg)
-        self.particles = self.meta_particles.copy()  # Update particles to the meta particles before resampling, so that the resampling step works with the updated distribution that incorporates the path history and the new scan information.
         weights = self.calculate_weights(self.particles)  # Final weight update for the meta particles based on the current scan
 
         #print(f"[DEBUG] Final meta particles (before normalization): {self.particles} | weights: {weights}")
@@ -498,19 +501,21 @@ class AMCMHLocalizer:
         
             self.resample_lvr()
         
-        self.meta_particles = self.particles.copy()  # Update meta particles for the next iteration
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
 
-        #print(f"[DEBUG] Finished lidar callback")
+        print(f"[DEBUG] Updated particles prev")
 
-        self.meta_weights = self.calculate_unorm_weights(self.meta_particles)  # Update meta weights for the next iteration
+        self.meta_weights = self.calculate_unorm_weights(self.particles_prev)  # Update meta weights for the next iteration
+        self.weights_pre = self.meta_weights.copy()  # Update weights_pre to the new meta weights for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
 
-        self.meta_xy = self.meta_particles[:, :2] * self.meta_weights[:, np.newaxis]  # Update meta xy for the next iteration
-        self.meta_cos = np.cos(self.meta_particles[:, 2]) * self.meta_weights  # Update meta cos for the next iteration
-        self.meta_sin = np.sin(self.meta_particles[:, 2]) * self.meta_weights  # Update meta sin for the next iteration
+        self.meta_xy = self.particles_prev[:, :2] * self.meta_weights[:, np.newaxis]  # Update meta xy for the next iteration
+        self.meta_cos = np.cos(self.particles_prev[:, 2]) * self.meta_weights  # Update meta cos for the next iteration
+        self.meta_sin = np.sin(self.particles_prev[:, 2]) * self.meta_weights  # Update meta sin for the next iteration
 
         self.accept_odom = True
+        self.updated_dist = True
         # rospy.loginfo("Publishing particles")
+        self.weights = self.calculate_weights(self.particles)
         self.publish_particles()
         self.publish_estimate()
 
@@ -545,31 +550,33 @@ class AMCMHLocalizer:
 
     def odom_callback(self, msg):
         
-        if not self.accept_odom:
+        if self.scan_ranges is None or self.accept_odom == False:
             return
-
-        #rospy.loginfo("Moving particles with odometry")
+        
+        #rospy.loginfo("Moving particles with odometry using particle prev")
+        self.do_mh_random_walk = False  
+        self.updated_dist = False  # Flag to indicate that we have not yet updated the meta distribution with the new odometry, so we should not perform the MH random walk in the lidar callback until we have done so, to ensure that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
         self.delta, current_odom = self.get_delta_odom(msg)
-        #current_path = self.delta_path.copy()
-        #self.delta_path = np.vstack((current_path,self.delta.reshape(1,3)))
+        self.last_odom = current_odom  
 
         # apply motion model and update particles 
         # mh particles updated here and particles (meta-particles in 3MCL) in the lidar callback 
         # after processing the scan with the new path history
+        print(f"[DEBUG] Applying motion model to {len(self.particles_prev)} particles with delta")
         self.particles_prop, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
                                                           self.map_data, self.resolution,
                                                           self.origin_np[0], self.origin_np[1],
                                                           self.width,self.height)
   
         # compute weights for particles before and after motion to use in MH step.
-        #print(f"[DEBUG] Proposed particles after motion : {self.particles_prop}")
-
+        #print(f"[DEBUG] Calculating weights for MH step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
         self.weights_post = self.calculate_unorm_weights(self.particles_prop)
 
 
         # MH step to decide which particles to keep for the next iteration, with update on meta set
         # being made on lidar callback after processing the new scan.
 
+        #print(f"[DEBUG] Performing MH resampling step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
         mh_weights, mh_particles, _ = self.update_particles_mh(self.weights_pre, self.weights_post,
                                                                self.particles_prev, self.particles_prop)
 
@@ -581,6 +588,10 @@ class AMCMHLocalizer:
         # scan, so that the meta particles represent a more informed distribution that considers multiple recent movements, not just the
         # last one. This is the core idea of Meta-MH-MCL.
 
+        if self.updated_dist == True:
+            print(f"[DEBUG] New scan received, resetting meta distribution update for odometry updates until next scan.")
+            return 
+        
         # Older samples get exponentially less importance
         self.meta_xy *=  self.meta_decay
         self.meta_cos *=  self.meta_decay
@@ -591,13 +602,20 @@ class AMCMHLocalizer:
         self.meta_cos +=  mh_cos * mh_weights
         self.meta_sin += mh_sin * mh_weights
         self.meta_weights += mh_weights
+
+        self.N_count = 0
+
+        #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update, before MH random walk.")
+        self.do_mh_random_walk = True  # Flag to indicate that we should perform MH random walk in the lidar callback after processing the new scan, so that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
+        self.mh_random_walk(mh_particles, mh_weights)
+        print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
         
-        self.meta_time_weight *= self.meta_decay  # Decay the time weight for the next iteration
+        #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update.")
+        
+        #self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration
 
-        self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration
-
-        self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
-        self.last_odom = current_odom   
+        #self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
+         
         self.odom_count += 1
 
     def get_delta_odom(self,msg):
@@ -614,7 +632,8 @@ class AMCMHLocalizer:
             delta = np.array(self.compute_motion(self.last_odom, current_odom), dtype=np.float32)        
         else:
 
-            delta = np.array((0.0, 0.0, 0.0), dtype=np.float32)
+            self.last_odom = np.array((0.0, 0.0, 0.0), dtype=np.float32)
+            delta = np.array(self.compute_motion(self.last_odom, current_odom), dtype=np.float32)        
             print("[DEBUG] First odometry received, no motion applied.")
             
         return delta, current_odom
@@ -676,9 +695,58 @@ class AMCMHLocalizer:
                                                         backward_delta, self.alpha)
 
         return trans_forward, trans_backward
+
     
-    
-    
+    def mh_random_walk(self, particles, weights):
+
+        delta = np.zeros(3, dtype=np.float32)
+        particles_prev = particles.copy()
+        weights_pre = weights.copy()
+        alpha_rw = self.alpha * 2
+        #alpha_rw[1:] = self.alpha[1:]*2  # Less noise on translation for random walk to keep it more focused on local exploration
+       
+
+        for i in range(self.Nr):
+
+            
+
+            particles_prop, _ = apply_motion_model_parallel(particles_prev,delta,alpha_rw,
+                                                                self.map_data, self.resolution,
+                                                                self.origin_np[0], self.origin_np[1],
+                                                                self.width,self.height)
+
+            #particles_prev[:,2] = particles_prev[:,2]                                   
+            
+            weights_post = self.calculate_unorm_weights(particles_prop)
+
+            mh_weights, mh_particles, _ = self.update_particles_mh(weights_pre, weights_post,
+                                                                particles_prev, particles_prop)
+
+            mh_xy = mh_particles[:, :2]
+            mh_cos = np.cos(mh_particles[:, 2])
+            mh_sin = np.sin(mh_particles[:, 2])
+
+            if self.accept_odom == False or self.do_mh_random_walk == False or self.updated_dist == True:
+                #print(f"[DEBUG] MH random walk stopped early at step {i} due to new odometry or scan update.")
+                break
+
+            #self.meta_xy *=  self.meta_decay
+            #self.meta_cos *=  self.meta_decay
+            #self.meta_sin *=  self.meta_decay
+            #self.meta_weights *=  self.meta_decay
+
+            self.meta_xy +=  mh_xy * mh_weights[:, np.newaxis]
+            self.meta_cos +=  mh_cos * mh_weights
+            self.meta_sin += mh_sin * mh_weights
+            self.meta_weights += mh_weights
+
+            particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration
+            weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
+            self.N_count += 1
+            #print(f"[DEBUG] MH random walk step {i+1}/{self.Nr} completed.")
+
+
+
     #======================================================================
     # Resample
     #======================================================================
@@ -790,7 +858,7 @@ class AMCMHLocalizer:
         marker_array.markers.append(clear_marker)
 
 
-        weights = self.calculate_weights(self.particles)
+        weights = self.weights.copy()
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
         #print(f"[DEBUG] Publishing {len(self.particles)} particles with normalized weights (min: {norm_weights.min():.4f}, max: {norm_weights.max():.4f})")
         marker_id =0
