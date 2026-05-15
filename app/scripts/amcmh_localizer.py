@@ -203,13 +203,17 @@ class AMCMHLocalizer:
         self.origin_np = np.array([origin_x, origin_y])
 
         # flattened 1D map for fast indexing (same order as map_msg.data)
-        self.map_data = map_2d.flatten()       # dtype int8
+        self.map_data = map_2d.flatten()      # dtype int8
+        print(f"[DEBUG] Map loaded: width={width}, height={height}, resolution={resolution:.3f} m/cell, origin=({origin_x:.2f}, {origin_y:.2f})")
 
         # occupancy_map (binary: 0 free, 1 occupied) for distance transform
-        occupancy_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0
+        obstacles_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0, unknown treated as free for distance map
+        #occupancy_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0
 
         rospy.loginfo("Generating distance map...")
-        self.dist_2d = distance_transform_edt(occupancy_binary == 0) * resolution
+        self.dist_2d = distance_transform_edt(obstacles_binary == 0) * resolution
+        unknown_mask = (map_2d == -1)
+        self.dist_2d[unknown_mask] = 10*self.max_range  # Assign large distance to unknown cells to encourage exploration, can be tuned based on the environment and desired behavior.
         self.distance_map = self.dist_2d.flatten().astype(np.float32)
         rospy.loginfo("Distance map generated.")
 
@@ -408,7 +412,8 @@ class AMCMHLocalizer:
 
         max_score = np.max(scores)
         weights = np.zeros_like(scores)
-        weights = np.exp(scores - max_score)  # Subtract max for numerical stability
+        #print(f"[DEBUG] Max score: {max_score:.4f} | Min score: {np.min(scores):.4f} | Mean score: {np.mean(scores):.4f}")
+        weights = np.exp(scores)  # Subtract max for numerical stability
         weights =  weights/np.sum(weights)
 
         return weights
@@ -509,18 +514,20 @@ class AMCMHLocalizer:
         # =======================
         #rospy.loginfo("Publicando pose estimada")
         
-        
+        self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
+
         if self.use_adaptive:
         
             self.resample_amcl_kld()
         
         else:
-        
+            #Neff = 1.0 / np.sum(self.weights**2)
+            #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+            #if Neff < self.num_particles / 2.0:
             self.resample_lvr()
         
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
-
-        print(f"[DEBUG] Updated particles prev")
+        #print(f"[DEBUG] Updated particles prev")
 
         self.meta_weights = self.calculate_unorm_weights(self.particles_prev)  # Update meta weights for the next iteration
         self.weights_pre = self.meta_weights.copy()  # Update weights_pre to the new meta weights for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
@@ -533,8 +540,9 @@ class AMCMHLocalizer:
         self.updated_dist = True
         # rospy.loginfo("Publishing particles")
         self.weights = self.calculate_weights(self.particles)
-        self.publish_particles()
         self.publish_estimate()
+        self.publish_particles()
+        
 
     def update_scans(self,scan):
 
@@ -579,7 +587,7 @@ class AMCMHLocalizer:
         # apply motion model and update particles 
         # mh particles updated here and particles (meta-particles in 3MCL) in the lidar callback 
         # after processing the scan with the new path history
-        print(f"[DEBUG] Applying motion model to {len(self.particles_prev)} particles with delta")
+        #print(f"[DEBUG] Applying motion model to {len(self.particles_prev)} particles with delta")
         self.particles_prop, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
                                                           self.map_data, self.resolution,
                                                           self.origin_np[0], self.origin_np[1],
@@ -606,7 +614,7 @@ class AMCMHLocalizer:
         # last one. This is the core idea of Meta-MH-MCL.
 
         if self.updated_dist == True:
-            print(f"[DEBUG] New scan received, resetting meta distribution update for odometry updates until next scan.")
+            #print(f"[DEBUG] New scan received, resetting meta distribution update for odometry updates until next scan.")
             return 
         
         self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration, so that the next odometry update applies the motion model to the MH result that incorporates the path history up to this point.
@@ -628,7 +636,7 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update, before MH random walk.")
         self.do_mh_random_walk = True  # Flag to indicate that we should perform MH random walk in the lidar callback after processing the new scan, so that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
         self.mh_random_walk(mh_particles, mh_weights)
-        print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
+        #print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
         
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update.")
         
@@ -652,8 +660,7 @@ class AMCMHLocalizer:
             delta = np.array(self.compute_motion(self.last_odom, current_odom), dtype=np.float32)        
         else:
 
-            self.last_odom = np.array((0.0, 0.0, 0.0), dtype=np.float32)
-            delta = np.array(self.compute_motion(self.last_odom, current_odom), dtype=np.float32)        
+            delta = np.array((0.0, 0.0, 0.0), dtype=np.float32)       
             print("[DEBUG] First odometry received, no motion applied.")
             
         return delta, current_odom
@@ -722,7 +729,7 @@ class AMCMHLocalizer:
         #delta = np.zeros(3, dtype=np.float32)
         particles_prev = particles.copy()
         weights_pre = weights.copy()
-        alpha_rw = self.alpha *1
+        alpha_rw = 4*self.alpha / self.Nr
         #alpha_rw[1:] = self.alpha[1:]*2  # Less noise on translation for random walk to keep it more focused on local exploration
 
         for i in range(self.Nr):
@@ -993,6 +1000,9 @@ class AMCMHLocalizer:
             self.resample_amcl_kld()
         else:
             self.weights = weights
+            #Neff = 1.0 / np.sum(self.weights**2)
+            #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+            #   if Neff < self.num_particles / 2.0:
             self.resample_lvr()
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 

@@ -123,15 +123,15 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         
         # 1. BODY CHECK: Reject if outside map or inside/on a wall
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
-            scores[i] = -6.0
+            scores[i] = -50.0
             continue
             
         # If distance to nearest wall is 0 (or very small), the robot is in a wall
         robot_radius = 0.18
 
         idx_r = my_r * width + mx_r
-        if distance_map[idx_r] <= robot_radius:
-            scores[i] = -6.0
+        if distance_map[idx_r] <= robot_radius/2: # If the robot is too close to a wall, reject this particle
+            scores[i] = -50.0
             continue
 
         log_score = 0.0
@@ -140,7 +140,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         for j in range(0, len(scan_ranges), step):
             r = scan_ranges[j]
             if not np.isfinite(r) or r >= max_range or r <= 0: # Treat invalid or max-range readings as random
-                log_score += np.log(z_rand * (1.0 / max_range) + 1e-6)
+                log_score += np.log(z_rand * (1.0 / max_range) + 1e-10)
                 continue
 
             lx = x + r * cos_table[j]
@@ -150,9 +150,21 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             my = int((ly - map_origin[1]) / map_resolution)
 
             if mx < 0 or mx >= width or my < 0 or my >= height: # distance outside map is treated as random
-                log_score -= np.log(z_rand * (1.0 / max_range) + 1e-6)
+                log_score += np.log(z_rand * (1.0 / max_range) + 1e-10)
                 continue 
             
+            # Sample a point at 50% or 75% of the range 'r'
+            mid_r = r * 0.99  # 50% of the range
+            mid_lx = x + mid_r * cos_table[j]
+            mid_ly = y + mid_r * sin_table[j]
+
+            mid_mx = int((mid_lx - map_origin[0]) / map_resolution)
+            mid_my = int((mid_ly - map_origin[1]) / map_resolution)
+
+            if distance_map[mid_my * width + mid_mx] < (map_resolution * 0.5):
+                # This particle is seeing through an obstacle!
+                p = 1e-10
+
             # 2. SENSOR SCORE: distance_map[idx] is distance to nearest wall
             # We WANT this to be 0 for a perfect match
             dist = distance_map[my * width + mx]
@@ -163,14 +175,14 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             #if r < 1.0:
             #    p_short = lambda_short * (1.0 - r)
             p = z_hit * p_hit + z_rand * (1.0 / max_range) - p_short
-            log_score += np.log(p + 1e-6)
+            log_score += np.log(p + 1e-10)
             valid_count += 1
 
-        #if valid_count > 0:
-        #    scores[i] = log_score #/ valid_count
-        #else:
-        #    scores[i] = -9.0
-        scores[i] = log_score
+        if valid_count > 0:
+            scores[i] = log_score / valid_count
+        else:
+            scores[i] = -50.0
+        #scores[i] = log_score * 0.03 # Scale down to prevent overflow in exp
 
     return scores
 
@@ -511,7 +523,7 @@ def compute_valid_indices(particles, map_data, map_resolution, origin_x, origin_
         if 0 <= mx < width and 0 <= my < height:
             index = my * width + mx
 
-            if map_data[index] <= 10:  # free
+            if map_data[index] == 0:  # free
                 valid_indices.append(i)
 
     return np.array(valid_indices, dtype=np.int32)
