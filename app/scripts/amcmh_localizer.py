@@ -46,7 +46,7 @@ class AMCMHLocalizer:
 
         self.delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # (rot1, trans, rot2)
         self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
-        self.odom_eps = 1e-6
+        self.odom_eps = 1e-4  # Threshold to consider translation as zero for in-place rotation handling
         self.accept_odom = False
 
         # Parâmetros KLD
@@ -73,6 +73,7 @@ class AMCMHLocalizer:
 
         self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
         self.Nr = rospy.get_param("random_steps", 10)  # Number of random walk steps per odometry update
+        self.Neff = self.num_particles  # Initialize effective sample size
 
 
         self.timeout = 10
@@ -281,7 +282,8 @@ class AMCMHLocalizer:
                 self.origin_np[0],
                 self.origin_np[1],
                 self.width,
-                self.height
+                self.height,
+                self.Nr
             )
 
         # sensor model
@@ -413,7 +415,7 @@ class AMCMHLocalizer:
         max_score = np.max(scores)
         weights = np.zeros_like(scores)
         #print(f"[DEBUG] Max score: {max_score:.4f} | Min score: {np.min(scores):.4f} | Mean score: {np.mean(scores):.4f}")
-        weights = np.exp(scores)  # Subtract max for numerical stability
+        weights = np.exp(scores - max_score)  # Subtract max for numerical stability
         weights =  weights/np.sum(weights)
 
         return weights
@@ -442,8 +444,7 @@ class AMCMHLocalizer:
             self.z_short, self.z_max, self.lambda_short
         )
 
-        max_score = np.max(scores)
-        weights = np.exp(scores)  # Subtract max for numerical stability
+        weights = np.exp(scores)  
 
         return weights
 
@@ -509,6 +510,8 @@ class AMCMHLocalizer:
         
             self.weights = weights
 
+        #self.Neff = 1.0 / np.sum(self.weights**2)
+        #print(f"[DEBUG] Effective sample size (Neff): {self.Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         # =======================
         # Publish and resampling
         # =======================
@@ -681,7 +684,7 @@ class AMCMHLocalizer:
         self.particles_prop = self.update_particle_set(self.delta)
         
         # rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
-        #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
+        print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
         #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
         self.particles_prev = self.particles.copy()
         self.particles = self.particles_prop.copy()
@@ -697,7 +700,14 @@ class AMCMHLocalizer:
 
         dtheta = normalize_angle(odom2[2] - odom1[2])
 
-        rot1 = normalize_angle(np.arctan2(dy, dx) - odom1[2])
+        if abs(trans) < self.odom_eps:
+            rot1 = 0.0
+        else:
+            rot1 = normalize_angle(np.arctan2(dy, dx) - odom1[2])
+        
+        if abs(rot1) >= np.pi / 2:
+            trans = -trans
+            rot1 = normalize_angle(rot1 - np.pi)
         rot2 = normalize_angle(dtheta - rot1)
 
         return rot1, trans, rot2
@@ -729,7 +739,7 @@ class AMCMHLocalizer:
         #delta = np.zeros(3, dtype=np.float32)
         particles_prev = particles.copy()
         weights_pre = weights.copy()
-        alpha_rw = 4*self.alpha / self.Nr
+        alpha_rw = self.alpha.copy()
         #alpha_rw[1:] = self.alpha[1:]*2  # Less noise on translation for random walk to keep it more focused on local exploration
 
         for i in range(self.Nr):
@@ -740,9 +750,9 @@ class AMCMHLocalizer:
 
 
             particles_prop = apply_random_walk_parallel(particles_prev,alpha_rw,
-                                                           self.map_data, self.resolution,
-                                                           self.origin_np[0], self.origin_np[1],
-                                                           self.width,self.height)
+                                                        self.map_data, self.resolution,
+                                                        self.origin_np[0], self.origin_np[1],
+                                                        self.width,self.height, self.Nr)
 
             #particles_prev[:,2] = particles_prev[:,2]                                   
             
@@ -1002,7 +1012,7 @@ class AMCMHLocalizer:
             self.weights = weights
             #Neff = 1.0 / np.sum(self.weights**2)
             #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-            #   if Neff < self.num_particles / 2.0:
+            #if Neff < self.num_particles / 2.0:
             self.resample_lvr()
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 

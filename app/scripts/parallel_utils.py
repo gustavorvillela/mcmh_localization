@@ -154,16 +154,16 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                 continue 
             
             # Sample a point at 50% or 75% of the range 'r'
-            mid_r = r * 0.99  # 50% of the range
-            mid_lx = x + mid_r * cos_table[j]
-            mid_ly = y + mid_r * sin_table[j]
-
-            mid_mx = int((mid_lx - map_origin[0]) / map_resolution)
-            mid_my = int((mid_ly - map_origin[1]) / map_resolution)
-
-            if distance_map[mid_my * width + mid_mx] < (map_resolution * 0.5):
-                # This particle is seeing through an obstacle!
-                p = 1e-10
+            #mid_r = r * 0.99  # 50% of the range
+            #mid_lx = x + mid_r * cos_table[j]
+            #mid_ly = y + mid_r * sin_table[j]
+#
+            #mid_mx = int((mid_lx - map_origin[0]) / map_resolution)
+            #mid_my = int((mid_ly - map_origin[1]) / map_resolution)
+#
+            #if distance_map[mid_my * width + mid_mx] < (map_resolution * 0.5):
+            #    # This particle is seeing through an obstacle!
+            #    p = 1e-20
 
             # 2. SENSOR SCORE: distance_map[idx] is distance to nearest wall
             # We WANT this to be 0 for a perfect match
@@ -171,10 +171,8 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             
             p_hit = gaussian_prob(dist, sigma_hit)
 
-            p_short = 0.0
-            #if r < 1.0:
-            #    p_short = lambda_short * (1.0 - r)
-            p = z_hit * p_hit + z_rand * (1.0 / max_range) - p_short
+            
+            p = z_hit * p_hit + z_rand * (1.0 / max_range)
             log_score += np.log(p + 1e-10)
             valid_count += 1
 
@@ -267,13 +265,13 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     alpha_array = np.empty(N, dtype=np.float64)
 
     for i in prange(N):
-        p_old = old_weights[i]
-        p_new = likelihoods[i]
-        alpha = min(1.0, p_new / p_old) 
+        p_old = log_dist_pre[i]
+        p_new = log_dist_post[i]
+        alpha = min(1.0, np.exp(p_new - p_old))
         alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
-            new_weights[i] = p_new
+            new_weights[i] = np.exp(p_new)
 
     acc_rate = np.mean(alpha_array)
     #print("MH acceptance rate:", acc_rate)
@@ -444,7 +442,7 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
-    max_attempts = 100
+    max_attempts = 200
     nfloor = 0.00001
     #dynamic_floor = nfloor * min(1.0, trans*20 + abs(rot1) + abs(rot2))
 
@@ -453,9 +451,9 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     for i in prange(num_particles):
         success = False
         for _ in range(max_attempts):
-            r1_hat = rot1 + np.random.normal(0, a1 * rot1**2 + a2 * (trans)**2 + nfloor)
-            t_hat = trans + np.random.normal(0, a3 * trans**2 + a4 * ((rot1)**2 + (rot2)**2) + nfloor)
-            r2_hat = rot2 + np.random.normal(0, a1 * rot2**2 + a2 * (trans)**2 + nfloor)
+            r1_hat = rot1 + np.random.normal(0, a1 * abs(rot1) + a2 * abs(trans) + nfloor)
+            t_hat = trans + np.random.normal(0, a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)) + nfloor)
+            r2_hat = rot2 + np.random.normal(0, a1 * abs(rot2) + a2 * abs(trans) + nfloor)
             delta_hat = np.array([r1_hat, t_hat, r2_hat])
             x, y, theta = particles[i]
             x_new = x + t_hat * np.cos(theta + r1_hat)
@@ -475,7 +473,7 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
 
 
 @njit(parallel=True)
-def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, origin_x, origin_y, width, height):
+def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, origin_x, origin_y, width, height, walk_length):
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
@@ -485,15 +483,15 @@ def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, or
         x, y, theta = particles[i]
         success = False
 
-        for _ in range(10):  # max attempts
-            r1_hat = np.random.normal(0, (a1**2+a2**2)/2)
-            t_hat = np.random.normal(0, (a3**2+a4**2)/2)
-            r2_hat = np.random.normal(0, (a1**2 + a2**2)/2)
-            delta_hat = np.array([r1_hat, t_hat, r2_hat])
+        for _ in range(100):  # max attempts
+            #r1_hat = np.random.normal(0, (a1+a2)/walk_length)
+            #t_hat = np.random.normal(0, (a3+a4)/walk_length)
+            #r2_hat = np.random.normal(0, (a1 + a2)/walk_length)
+            #delta_hat = np.array([r1_hat, t_hat, r2_hat])
 
-            x_new = x + t_hat * np.cos(theta + r1_hat)
-            y_new = y + t_hat * np.sin(theta + r1_hat)
-            theta_new = normalize_angle(theta + r1_hat + r2_hat)
+            x_new = np.random.normal(x, (a3+a4)/walk_length)
+            y_new = np.random.normal(y, (a3+a4)/walk_length)
+            theta_new = np.random.normal(theta, (a1+a2)/walk_length)
 
             if is_valid_position(x_new, y_new, map_data, width, height, map_resolution, origin_x, origin_y):
                 new_particles[i] = [x_new, y_new, theta_new]
