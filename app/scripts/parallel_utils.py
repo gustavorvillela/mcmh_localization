@@ -120,10 +120,13 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         # Grid coordinates for the robot body
         mx_r = int((x - map_origin[0]) / map_resolution)
         my_r = int((y - map_origin[1]) / map_resolution)
+
+        total_beams = len(range(0, len(scan_ranges), step))
+        worst_case  = np.log(z_rand / max_range + 1e-10) * total_beams
         
         # 1. BODY CHECK: Reject if outside map or inside/on a wall
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
-            scores[i] = -50.0
+            scores[i] = worst_case
             continue
             
         # If distance to nearest wall is 0 (or very small), the robot is in a wall
@@ -131,16 +134,16 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
 
         idx_r = my_r * width + mx_r
         if distance_map[idx_r] <= robot_radius/2: # If the robot is too close to a wall, reject this particle
-            scores[i] = -50.0
+            scores[i] = worst_case
             continue
 
         log_score = 0.0
         valid_count = 0
+        
 
         for j in range(0, len(scan_ranges), step):
             r = scan_ranges[j]
             if not np.isfinite(r) or r >= max_range or r <= 0: # Treat invalid or max-range readings as random
-                log_score += np.log(z_rand * (1.0 / max_range) + 1e-10)
                 continue
 
             lx = x + r * cos_table[j]
@@ -150,20 +153,8 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             my = int((ly - map_origin[1]) / map_resolution)
 
             if mx < 0 or mx >= width or my < 0 or my >= height: # distance outside map is treated as random
-                log_score += np.log(z_rand * (1.0 / max_range) + 1e-10)
                 continue 
-            
-            # Sample a point at 50% or 75% of the range 'r'
-            #mid_r = r * 0.99  # 50% of the range
-            #mid_lx = x + mid_r * cos_table[j]
-            #mid_ly = y + mid_r * sin_table[j]
-#
-            #mid_mx = int((mid_lx - map_origin[0]) / map_resolution)
-            #mid_my = int((mid_ly - map_origin[1]) / map_resolution)
-#
-            #if distance_map[mid_my * width + mid_mx] < (map_resolution * 0.5):
-            #    # This particle is seeing through an obstacle!
-            #    p = 1e-20
+
 
             # 2. SENSOR SCORE: distance_map[idx] is distance to nearest wall
             # We WANT this to be 0 for a perfect match
@@ -176,11 +167,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             log_score += np.log(p + 1e-10)
             valid_count += 1
 
-        if valid_count > 0:
-            scores[i] = log_score / valid_count
-        else:
-            scores[i] = -50.0
-        #scores[i] = log_score * 0.03 # Scale down to prevent overflow in exp
+        scores[i] = log_score # Scale down to prevent overflow in exp
 
     return scores
 
@@ -265,13 +252,13 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     alpha_array = np.empty(N, dtype=np.float64)
 
     for i in prange(N):
-        p_old = log_dist_pre[i]
-        p_new = log_dist_post[i]
-        alpha = min(1.0, np.exp(p_new - p_old))
+        p_old = old_weights[i] + 1e-10
+        p_new = likelihoods[i] 
+        alpha = min(1.0, p_new/p_old) 
         alpha_array[i] = alpha
         if np.random.rand() < alpha:
             new_particles[i] = proposed_particles[i]
-            new_weights[i] = np.exp(p_new)
+            new_weights[i] = p_new
 
     acc_rate = np.mean(alpha_array)
     #print("MH acceptance rate:", acc_rate)
@@ -667,69 +654,111 @@ def reinitialize_particles_numba(num_new, occupancy_map, res, origin_x, origin_y
 
 
 @njit
-def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta,
-                       epsilon, z, max_samples, min_particles):
-    
-    '''
-    KLD-sampling for AMCL.
-    Resampling with stopping criterion based on Kullback-Leibler Divergence.
-    Args:
-        particles: (N, 3) array of particles
-        weights: (N,) array of normalized weights
-        bin_size_xy: cell size in x and y (meters)
-        bin_size_theta: cell size in theta (radians)
-        epsilon: maximum allowed error
-        z: z-value for confidence interval
-        max_samples: maximum number of samples
-        min_particles: minimum number of particles
-    Returns:
-        sampled_particles: (M, 3) array of sampled particles
-        
-    '''
-    bins = set()
+def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta, epsilon, z,
+                      max_samples, min_particles):
+
+    """
+    Adaptive KLD resampling for AMCL.
+
+    IMPORTANT:
+    - weights MUST already be normalized
+    - uses multinomial sampling (NOT systematic)
+    - KLD stopping criterion is evaluated DURING sampling
+    """
+
     sampled_particles = np.empty((max_samples, 3), dtype=np.float32)
+
+    bins = set()
+
     count = 0
-    noise_std = np.array([0.001, 0.001, 0.02], dtype=np.float64)
-    
-    r = np.random.uniform(0, 1/max_samples)
-    c = weights[0]
-    i = 0
-    
-    while count < max_samples:
-        # Low-variance sampling
-        u = r + count / max_samples
-        while u > c and i < len(weights)-1:
-            i += 1
-            c += weights[i]
-        
-        p = particles[i]
-        
-        # Add Gaussian noise
-        noisy_particle = np.empty(3, dtype=np.float64)
-        for j in range(3):
-            noisy_particle[j] = p[j] + np.random.normal(0, noise_std[j])
-        
-        # Update bins
-        x_bin = int(noisy_particle[0] / bin_size_xy)
-        y_bin = int(noisy_particle[1] / bin_size_xy)
-        theta_bin = int(noisy_particle[2] / bin_size_theta)
-        bin_id = (x_bin, y_bin, theta_bin)
-        
-        if bin_id not in bins:
-            bins.add(bin_id)
-            k = len(bins)
-            
-            # KLD stopping criterion
-            if k > 1 and count >= min_particles:
-                chi2 = (k-1)*(1 - 2/(9*(k-1)) + np.sqrt(2/(9*(k-1)))*z)**3
-                if count > chi2/(2*epsilon):
-                    break
-        
-        sampled_particles[count] = noisy_particle
+    required_samples = max_samples
+
+    N = len(weights)
+
+    while count < min(required_samples, max_samples):
+
+        # ============================================================
+        # Multinomial draw from weighted distribution
+        # ============================================================
+
+        u = np.random.rand()
+
+        cumulative = 0.0
+        idx = N - 1
+
+        for i in range(N):
+            cumulative += weights[i]
+
+            if u <= cumulative:
+                idx = i
+                break
+
+        p = particles[idx]
+
+        # ============================================================
+        # Wrap theta before binning
+        # ============================================================
+
+        theta = p[2]
+
+        # ============================================================
+        # Compute KLD bin
+        # ============================================================
+
+        x_bin = int(np.floor(p[0] / bin_size_xy))
+        y_bin = int(np.floor(p[1] / bin_size_xy))
+        theta_bin = int(np.floor(theta / bin_size_theta))
+
+        # Fast integer hash instead of tuple
+        bin_id = (
+            x_bin * 73856093 ^
+            y_bin * 19349663 ^
+            theta_bin * 83492791
+        )
+
+        # ============================================================
+        # Add particle
+        # ============================================================
+
+        sampled_particles[count] = p
         count += 1
 
-    
-    return sampled_particles[:count]  # Return only the sampled ones
+        # ============================================================
+        # Update occupied bins
+        # ============================================================
+
+        if bin_id not in bins:
+
+            bins.add(bin_id)
+
+            k = len(bins)
+
+            # ========================================================
+            # KLD stopping rule
+            # ========================================================
+
+            if k > 1 and count >= min_particles:
+
+                # Wilson-Hilferty approximation
+                chi2 = (k - 1) * (
+                    1.0
+                    - 2.0 / (9.0 * (k - 1))
+                    + np.sqrt(2.0 / (9.0 * (k - 1))) * z
+                ) ** 3
+
+                required_samples = int(np.ceil(
+                    chi2 / (2.0 * epsilon)
+                ))
+
+                if required_samples < min_particles:
+                    required_samples = min_particles
+
+                elif required_samples > max_samples:
+                    required_samples = max_samples
+
+    print("[DEBUG] Occupied bins =", len(bins))
+
+    return sampled_particles[:count]
 
 
 def initialize_gaussian_parallel(mean, cov, num_particles, distance_map, resolution, origin):

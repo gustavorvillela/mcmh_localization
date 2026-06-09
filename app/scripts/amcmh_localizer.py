@@ -102,17 +102,17 @@ class AMCMHLocalizer:
             rospy.loginfo("Initializing particles uniformly on the map")
 
         #AMCL
-        self.min_particles = self.min_particles = rospy.get_param('min_particles', 100)
-        self.max_particles = self.max_particles = rospy.get_param('max_particles', 5000)
-        self.w_slow = 1e-3
-        self.w_fast = 1e-3
+        self.min_particles = rospy.get_param('min_particles', self.num_particles/2)
+        self.max_particles = rospy.get_param('max_particles', self.num_particles*2)
+        self.w_slow = 1/self.num_particles
+        self.w_fast = 1/self.num_particles
  
         # Load map
         
         
         self.load_map()
 
-        self.warmup_numba()
+        
 
         # Initialize particles
         self.particles = self.initialize_particles(self.num_particles).astype(np.float32)
@@ -120,6 +120,7 @@ class AMCMHLocalizer:
         self.particles_prev = np.copy(self.particles_prop)
         self.meta_particles = np.copy(self.particles)
 
+        self.warmup_numba()
         
         self.weights = np.ones(self.num_particles) / self.num_particles
         
@@ -245,15 +246,10 @@ class AMCMHLocalizer:
         N  = 5
         Ns = 10
         
-        if self.initialized:
-            particles = initialize_gaussian_parallel(self.initial_pose,self.initial_cov,N,
-                                                           self.dist_2d,self.resolution,self.origin_np).astype(np.float32)
-        else:
-            particles = generate_valid_particles(N, self.map_data, self.resolution, self.origin_np[0], self.origin_np[1], self.width, self.height)
-
-        
-        dummy_particles = particles.astype(np.float32)
-        dummy_weights = np.ones(N, dtype=np.float32) / N
+        dummy_particles = self.particles[:N].copy().astype(np.float32)  # small for fast kernels
+        dummy_full      = self.particles.copy()                          # full scale for resamplers
+        dummy_weights   = 1/N*np.ones(len(dummy_particles))
+        dummy_weights_full = np.full(len(dummy_full), 1.0/len(dummy_full), dtype=np.float32)
 
         dummy_scan = np.ones(Ns, dtype=np.float32)
         dummy_angles = np.linspace(-1.0, 1.0, Ns, dtype=np.float32)
@@ -319,15 +315,18 @@ class AMCMHLocalizer:
         if self.use_adaptive:
             # KLD
             kld_sampling_amcl(
-                dummy_particles,
-                dummy_weights,
+                dummy_full,
+                dummy_weights_full,
                 self.kld_bin_size_xy,
                 self.kld_bin_size_theta,
                 self.kld_epsilon,
                 self.kld_z,
-                10,
+                50,
                 5
             )
+
+            generate_valid_particles(2*len(dummy_full), self.map_data, self.resolution,
+                                     self.origin_np[0], self.origin_np[1], self.width, self.height)
         else:
             # LVR
             low_variance_resample_numba(
@@ -430,6 +429,7 @@ class AMCMHLocalizer:
             self.z_short, self.z_max, self.lambda_short
         )
 
+        
         weights = self.convert_scores(scores)
 
         return weights
@@ -465,12 +465,16 @@ class AMCMHLocalizer:
 
     def update_acml_weights(self,weights):
 
-        self.weights = weights/np.sum(weights)
+        #self.weights = weights/np.sum(weights)
 
-        # Atualiza w_slow e w_fast
-        w_avg = np.mean(self.weights)  # mean of normalized weights
+        # Updates w_slow and w_fast
+        w_avg = np.sum(weights)/len(weights)  # mean of normalized weights
+        
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
+        #print(f"[DEBUG] w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | w_avg: {w_avg:.6f}")
+
+        self.weights = weights/np.sum(weights)
 
 
     #======================================================================
@@ -684,7 +688,7 @@ class AMCMHLocalizer:
         self.particles_prop = self.update_particle_set(self.delta)
         
         # rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
-        print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
+        #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
         #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
         self.particles_prev = self.particles.copy()
         self.particles = self.particles_prop.copy()
@@ -843,14 +847,38 @@ class AMCMHLocalizer:
 
 
     def resample_amcl_kld(self):
-        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
-        N = self.num_particles
-        N_random = int(p_random * N)
-        N_resampled = N - N_random
+        # ================================================================
+        # AMCL random particle injection
+        # ================================================================
 
-        # KLD Sampling com Numba
-        #rospy.loginfo("Realizando amostragem KLD...")
+        ratio = self.w_fast / (self.w_slow + 1e-12)
+
+        p_random = max(0.0, 1.0 - ratio)
+
+        N_target = self.max_particles
+
+        N_random = int(p_random * N_target)
+
+        N_resampled_max = N_target - N_random
+
+        N_prev = len(self.particles)
+
+        # ================================================================
+        # Normalize weights BEFORE KLD
+        # ================================================================
+
+        weight_sum = np.sum(self.weights)
+
+        if weight_sum <= 1e-12:
+            self.weights[:] = 1.0 / len(self.weights)
+        else:
+            self.weights /= weight_sum
+
+        # ================================================================
+        # Adaptive KLD resampling
+        # ================================================================
+
         resampled_particles = kld_sampling_amcl(
             self.particles,
             self.weights,
@@ -858,26 +886,70 @@ class AMCMHLocalizer:
             self.kld_bin_size_theta,
             self.kld_epsilon,
             self.kld_z,
-            N_resampled,
+            N_resampled_max,
             self.min_particles
         )
 
-        #print(f"[DEBUG] KLD resampled {resampled_particles.shape[0]} particles | Nans: {np.isnan(resampled_particles).sum()} | Infs: {np.isinf(resampled_particles).sum()}")
+        # ================================================================
+        # Random particle injection
+        # ================================================================
 
+        if N_random > 0:
 
-        random_particles = generate_valid_particles(N_random,self.map_data,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
+            random_particles = generate_valid_particles(
+                N_random,
+                self.map_data,
+                self.resolution,
+                self.origin_np[0],
+                self.origin_np[1],
+                self.width,
+                self.height
+            )
 
-        # Junta
+            self.particles = np.ascontiguousarray(
+                np.vstack((random_particles, resampled_particles)),
+                dtype=np.float32
+            )
+
+        else:
+
+            self.particles = np.ascontiguousarray(
+                resampled_particles,
+                dtype=np.float32
+            )
+
+        # ================================================================
+        # Reset weights uniformly
+        # ================================================================
+
         self.num_particles = len(self.particles)
-        self.particles = np.vstack((random_particles, resampled_particles))
-        self.weights   = np.full(len(self.particles), 1.0 / len(self.particles))
-        #print(f"[DEBUG] Total particles after KLD + random: {len(self.particles)} | Random: {N_random} | Resampled: {resampled_particles.shape[0]}")
-        #print(f"[DEBUG] KLD weights sum: {np.sum(self.weights)} | min: {np.min(self.weights)} | max: {np.max(self.weights)} | Nb_weights: {len(self.weights)}")
 
-        if len(self.particles) != N:
+        self.weights = np.full(
+            self.num_particles,
+            1.0 / self.num_particles,
+            dtype=np.float64
+        )
 
-            rospy.loginfo(f"Particle update!\n From: {N}  To: {len(self.particles)}")
+        # ================================================================
+        # Debug
+        # ================================================================
+
+        print(
+            f"[DEBUG] "
+            f"w_slow={self.w_slow:.6f} "
+            f"w_fast={self.w_fast:.6f} "
+            f"ratio={ratio:.6f} "
+            f"p_random={p_random:.4f} "
+            f"N_random={N_random} "
+            f"N_final={self.num_particles}"
+        )
+
+        if self.num_particles != N_prev:
+
+            rospy.loginfo(
+                f"Particle update!\n"
+                f" From: {N_prev}  To: {self.num_particles}"
+            )
         
 
         
@@ -993,7 +1065,11 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Scan processing took {time.time() - t:.4f} seconds")
 
         t = time.time()
-        weights_pre, weights_post = self.update_weights(self.particles_prev, self.particles)
+        if not self.use_adaptive:
+            weights_pre, weights_post = self.update_weights(self.particles_prev, self.particles)
+        else:
+            weights_pre  = self.calculate_unorm_weights(self.particles_prev)
+            weights_post = self.calculate_unorm_weights(self.particles)
         #print(f"[DEBUG] Weight update took {time.time() - t:.4f} seconds")
         
         # 3. MH STEP: Perform MH resampling
@@ -1008,18 +1084,17 @@ class AMCMHLocalizer:
         if self.use_adaptive:
             self.update_acml_weights(weights)
             self.resample_amcl_kld()
+            self.num_particles = len(self.particles)
         else:
             self.weights = weights
-            #Neff = 1.0 / np.sum(self.weights**2)
-            #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-            #if Neff < self.num_particles / 2.0:
             self.resample_lvr()
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 
         # 5. PUBLISH
         t = time.time()
         self.weights = self.calculate_weights(self.particles)  # Recalculate weights for the new particle set after resampling, to use in the visualization and estimate publication. This is important because resampling changes the particle set and we want the published weights to reflect the current particles.
-        
+
+        t = time.time()
         self.acc_rate.publish(Float64(acc_rate))
         self.publish_particles()
         self.publish_estimate()
