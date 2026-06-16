@@ -64,7 +64,7 @@
 
   <!-- Bag player with simulated clock -->  
   <node pkg="rosbag" type="play" name="play_bag"
-    args="--clock --rate=0.5 --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen"/>
+    args="--clock --rate=1.0 --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen"/>
 
   
 

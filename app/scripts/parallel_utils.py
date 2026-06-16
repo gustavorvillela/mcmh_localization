@@ -1,7 +1,7 @@
 from numba import njit, prange
 import numpy as np
 
-@njit
+@njit(cache=True)
 def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, grid_height):
   """Raycasting to find obstacles."""
   x, y = pose[0], pose[1]
@@ -28,45 +28,45 @@ def raycast(pose, angle,max_range, limits, resolution, grid_map, grid_width, gri
 
   return max_range
 
-@njit
+@njit(cache=True)
 def gaussian_prob(diff, sigma):
     return np.exp(-0.5 * (diff / sigma)**2)/np.sqrt(2*np.pi*sigma**2)
 
 
-@njit
+@njit(cache=True)
 def p_hit(z, z_expected, sigma_hit, max_range):
     """Probability of hit - correct measurement."""
     if 0 <= z <= max_range:
         return (1 / (np.sqrt(2*np.pi) * sigma_hit)) * np.exp(-0.5 * ((z - z_expected) / sigma_hit)**2)
     return 0.0
 
-@njit
+@njit(cache=True)
 def p_short(z, z_expected, lambda_short):
     """Probability of short - obstacle closer than expected."""
     if 0 <= z <= z_expected:
         return lambda_short * np.exp(-lambda_short * z)
     return 0.0
 
-@njit
+@njit(cache=True)
 def p_max(z, max_range):
     """Probability of max - sensor returning maximum value."""
     return 1.0 if abs(z - max_range) < 0.001 else 0.0
 
-@njit
+@njit(cache=True)
 def p_rand(z, max_range):
     """Probability of rand - random measurement."""
     return 1.0 / max_range if 0 <= z <= max_range else 0.0
 
 
 
-@njit
+@njit(cache=True)
 def normalize_angle(theta):
     """
     Normalize angle to the range [-pi, pi].
     """
     return (theta + np.pi) % (2 * np.pi) - np.pi
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def normalize_angle_array(angles, mean_angle):
     """
     Normalize an array of angles relative to the mean angle.
@@ -82,7 +82,7 @@ def normalize_angle_array(angles, mean_angle):
         result[i] = normalize_angle(angles[i] - mean_angle)
     return result
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                         map_resolution, map_origin, width, height,
                         sigma_hit=0.35, z_hit=0.9, z_rand=0.1, max_range=10, step=1,
@@ -122,7 +122,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         my_r = int((y - map_origin[1]) / map_resolution)
 
         total_beams = len(range(0, len(scan_ranges), step))
-        worst_case  = np.log(z_rand / max_range + 1e-10) * total_beams
+        worst_case  = np.log(z_rand / max_range + 1e-10)*total_beams  # Worst case if all beams are random
         
         # 1. BODY CHECK: Reject if outside map or inside/on a wall
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
@@ -171,7 +171,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
 
     return scores
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_resolution, limits):
     """
     Compute particle likelihoods using beam model with raycasting.
@@ -228,7 +228,7 @@ def compute_likelihoods_raycast(scan_ranges, angles, particles, grid_map, map_re
 # Metropolis-Hastings
 #=======================================================================
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
 
     """
@@ -265,7 +265,7 @@ def mh_resampling(particles, proposed_particles, likelihoods, old_weights):
     return new_particles, new_weights, acc_rate
 
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def accumulate_meta_particles(
     mh_particles,
     mh_weights,
@@ -291,7 +291,7 @@ def accumulate_meta_particles(
         meta_cos[i] += w * np.cos(theta)
         meta_sin[i] += w * np.sin(theta)
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def finalize_meta_particles(
     meta_xy,
     meta_cos,
@@ -320,7 +320,7 @@ def finalize_meta_particles(
 
     return particles
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights, trans_forward, trans_backward):
 
     """
@@ -367,7 +367,7 @@ def assym_mh_resampling(particles, proposed_particles, likelihoods, old_weights,
 # Motion model functions
 #=======================================================================
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha):
     """
     Compute p(x_t | x_{t-1}, u_t) for all particles in parallel using odometry motion model.
@@ -382,7 +382,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
         probs: (N,) array of motion model probabilities (normalized)
     """
     rot1, trans, rot2 = delta
-    a1, a2, a3, a4, a5, a6 = alpha
+    a1, a2, a3, a4 = alpha
     N = particles_prev.shape[0]
     probs = np.empty(N, dtype=np.float64)
     eps = 1e-6
@@ -406,7 +406,7 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
         # Noise parameters
         sigma_rot1  = max(a1 * abs(rot1) + a2 * abs(trans), eps)
         sigma_trans = max(a3 * abs(trans) + a4 * (abs(rot1) + abs(rot2)), eps)
-        sigma_rot2  = max(a5 * abs(rot2) + a6 * abs(trans), eps)
+        sigma_rot2  = max(a1 * abs(rot2) + a2 * abs(trans), eps)
 
         # Gaussian motion likelihoods
         p1 = gaussian_prob(normalize_angle(rot1 - rot1_hat), sigma_rot1)
@@ -422,10 +422,10 @@ def motion_model_odometry_parallel(particles_prev, particles_curr, delta, alpha)
 
     return probs
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolution, origin_x, origin_y, width, height):
     rot1, trans, rot2 = delta
-    a1, a2, a3, a4, a5, a6 = alpha
+    a1, a2, a3, a4 = alpha
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
@@ -459,12 +459,12 @@ def apply_motion_model_parallel(particles, delta, alpha, map_data, map_resolutio
     return new_particles, deltas
 
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, origin_x, origin_y, width, height, walk_length):
     num_particles = particles.shape[0]
     new_particles = np.empty_like(particles)
 
-    a1, a2, a3, a4, _, _ = alpha_rw
+    a1, a2, a3, a4 = alpha_rw
 
     for i in prange(num_particles):
         x, y, theta = particles[i]
@@ -494,7 +494,7 @@ def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, or
 # Resample and validation functions
 #=======================================================================
 
-@njit
+@njit(cache=True)
 def compute_valid_indices(particles, map_data, map_resolution, origin_x, origin_y,width, height):
     num_particles = particles.shape[0]
     valid_indices = []
@@ -513,7 +513,7 @@ def compute_valid_indices(particles, map_data, map_resolution, origin_x, origin_
 
     return np.array(valid_indices, dtype=np.int32)
 
-@njit
+@njit(cache=True)
 def is_valid_position(x, y, map_data, width, height, map_resolution, origin_x, origin_y):
     mx = int((x - origin_x) / map_resolution)
     my = int((y - origin_y) / map_resolution)
@@ -523,7 +523,7 @@ def is_valid_position(x, y, map_data, width, height, map_resolution, origin_x, o
         return map_data[index] == 0
     return False
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def compute_valid_mask(particles, map_data, width, height, resolution, origin_x, origin_y):
     num_particles = particles.shape[0]
     valid_mask = np.zeros(num_particles, dtype=np.bool_)
@@ -541,7 +541,7 @@ def compute_valid_mask(particles, map_data, width, height, resolution, origin_x,
     return valid_mask
 
 
-@njit
+@njit(cache=True)
 def low_variance_resample_numba(particles, weights, N):
 
     """ 
@@ -575,7 +575,7 @@ def low_variance_resample_numba(particles, weights, N):
 
 
 
-@njit
+@njit(cache=True)
 def generate_valid_particles(num_particles, map_data, map_resolution, origin_x, origin_y,width,height):
     max_trials = max(50 * num_particles, 500)
     x = np.random.uniform(origin_x, origin_x + width * map_resolution, size=max_trials)
@@ -591,7 +591,7 @@ def generate_valid_particles(num_particles, map_data, map_resolution, origin_x, 
     else:
         return valid_particles
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def parallel_resample_simple(particles, weights, N):
     new_particles = np.empty_like(particles)
     cum_weights = np.cumsum(weights)
@@ -610,7 +610,7 @@ def parallel_resample_simple(particles, weights, N):
 from numba import njit, prange
 import numpy as np
 
-@njit
+@njit(cache=True)
 def low_variance_resample_amcl(particles, weights, target_size):
     N = len(particles)
     new_particles = np.empty((target_size, 3), dtype=np.float32)
@@ -628,7 +628,7 @@ def low_variance_resample_amcl(particles, weights, target_size):
 
     return new_particles, np.full(target_size, 1.0/target_size)
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def reinitialize_particles_numba(num_new, occupancy_map, res, origin_x, origin_y):
     new_particles = np.empty((num_new, 3), dtype=np.float32)
     valid_cells = np.argwhere(occupancy_map == 0)  # Precompute valid cells
@@ -653,7 +653,7 @@ def reinitialize_particles_numba(num_new, occupancy_map, res, origin_x, origin_y
     return new_particles
 
 
-@njit
+@njit(cache=True)
 def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta, epsilon, z,
                       max_samples, min_particles):
 
@@ -766,7 +766,7 @@ def initialize_gaussian_parallel(mean, cov, num_particles, distance_map, resolut
     particles = validate_samples(samples, distance_map, resolution, origin)
     return particles
 
-@njit(parallel=True)
+@njit(cache=True, parallel=True)
 def validate_samples(samples, distance_map, resolution, origin):
     num_particles = samples.shape[0]
     valid_particles = np.empty((num_particles, 3), dtype=np.float64)

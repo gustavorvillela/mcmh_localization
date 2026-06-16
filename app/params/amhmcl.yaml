@@ -18,8 +18,8 @@
 #localization_mode: "MHMCL"  
 initialized: False
 use_sim_time: True
-init_particles: 1000
-headless: True  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
+init_particles: 250
+headless: False  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
 
 meta_lambda: 0.92  # Exponential recency weighting factor for Meta-MH 
@@ -34,9 +34,13 @@ random_steps: 50  # Number of random walk steps per odometry update (tune based 
 alpha1: 0.16  # rotation noise due to rotation   - 0.26
 alpha2: 0.175  # rotation noise due to translation - 0.075 
 alpha3: 0.18  # translation noise due to translation - 0.28
-alpha4: 0.25  # translation noise due to rotation - 0.075
-alpha5: 0.02  # additional noise for in-place rotation - 0.02
-alpha6: 0.04  # additional noise for in-place translation - 0.04
+alpha4: 0.05  # translation noise due to rotation - 0.075
+
+# Additional noise parameters for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
+alpha5: 0.425  # additional noise for in-place rotation - 0.02
+alpha6: 0.425  # additional noise for in-place translation - 0.04
+alpha7: 0.422  # additional noise for small forward movement - 0.01
+alpha8: 0.422   # additional noise for small backward movement - 0.01
 
 #=======================================
 # KLD Resampling parameters
@@ -67,9 +71,9 @@ alpha_fast: 0.01  # fast learning rate
 # Tune these parameters based on your LiDAR characteristics and environment
 # or using a learn intrinsic parameters method
 
-sigma_hit: 0.3   # 0.22
-z_hit: 0.85      # 0.85
-z_rand: 0.1      # 0.15
+sigma_hit: 0.25   # 0.22
+z_hit: 0.6     # 0.85
+z_rand: 0.4      # 0.15
 max_range: 8.0    # 8.0
-step: 10
+step: 36
 
