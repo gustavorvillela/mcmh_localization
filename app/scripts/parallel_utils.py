@@ -575,7 +575,12 @@ def low_variance_resample_numba(particles, weights, N):
 
 
 
-@njit(cache=True)
+# NOTE: no cache=True here. This function calls compute_valid_mask, which is
+# @njit(parallel=True). Caching an outer non-parallel function that calls a
+# cached parallel function produces a broken on-disk cache that SIGSEGVs when
+# loaded in a fresh process (numba issue with nested cached parallel kernels).
+# Leaving this uncached costs ~one extra compile but is correct.
+@njit
 def generate_valid_particles(num_particles, map_data, map_resolution, origin_x, origin_y,width,height):
     max_trials = max(50 * num_particles, 500)
     x = np.random.uniform(origin_x, origin_x + width * map_resolution, size=max_trials)
@@ -606,9 +611,6 @@ def parallel_resample_simple(particles, weights, N):
 #=============
 # AMCL
 #=============
-
-from numba import njit, prange
-import numpy as np
 
 @njit(cache=True)
 def low_variance_resample_amcl(particles, weights, target_size):

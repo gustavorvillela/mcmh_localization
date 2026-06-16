@@ -124,8 +124,6 @@ class AMCMHLocalizer:
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = np.copy(self.particles_prop)
         self.meta_particles = np.copy(self.particles)
-
-        self.warmup_numba()
         
         self.weights = np.ones(self.num_particles) / self.num_particles
         
@@ -245,106 +243,7 @@ class AMCMHLocalizer:
         self.map_data = self.map_data.astype(np.int8)
         self.distance_map = self.distance_map.astype(np.float32)
 
-    def warmup_numba(self):
-
-        rospy.loginfo("Warming up numba kernels...")
-        t = time.time()
-
-        N  = 5
-        Ns = 10
-        
-        dummy_particles = self.particles[:N].copy().astype(np.float32)  # small for fast kernels
-        dummy_full      = self.particles.copy()                          # full scale for resamplers
-        dummy_weights   = 1/N*np.ones(len(dummy_particles))
-        dummy_weights_full = np.full(len(dummy_full), 1.0/len(dummy_full), dtype=np.float32)
-
-        dummy_scan = np.ones(Ns, dtype=np.float32)
-        dummy_angles = np.linspace(-1.0, 1.0, Ns, dtype=np.float32)
-
-        dummy_delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-
-        # motion model
-        apply_motion_model_parallel(
-            dummy_particles,
-            dummy_delta,
-            self.alpha,
-            self.map_data,
-            self.resolution,
-            self.origin_np[0],
-            self.origin_np[1],
-            self.width,
-            self.height
-        )
-
-        if self.meta:
-            apply_random_walk_parallel(
-                dummy_particles,
-                self.alpha_rw,
-                self.map_data,
-                self.resolution,
-                self.origin_np[0],
-                self.origin_np[1],
-                self.width,
-                self.height,
-                self.Nr
-            )
-
-        # sensor model
-        compute_likelihoods(
-            dummy_scan,
-            dummy_angles,
-            dummy_particles,
-            self.distance_map,
-            self.resolution,
-            self.origin_np,
-            self.width,
-            self.height,
-            self.sigma_hit,
-            self.z_hit,
-            self.z_rand,
-            self.max_range,
-            self.step,
-            self.z_short,
-            self.z_max,
-            self.lambda_short
-        )
-
-        # MH
-        if self.use_mh or self.meta:
-            mh_resampling(
-                dummy_particles,
-                dummy_particles.copy(),
-                dummy_weights,
-                dummy_weights
-            )
-
-        
-        if self.use_adaptive:
-            # KLD
-            kld_sampling_amcl(
-                dummy_full,
-                dummy_weights_full,
-                self.kld_bin_size_xy,
-                self.kld_bin_size_theta,
-                self.kld_epsilon,
-                self.kld_z,
-                50,
-                5
-            )
-
-            generate_valid_particles(2*len(dummy_full), self.map_data, self.resolution,
-                                     self.origin_np[0], self.origin_np[1], self.width, self.height)
-        else:
-            # LVR
-            low_variance_resample_numba(
-                dummy_particles,
-                dummy_weights,
-                5
-            )
-
-
-        rospy.loginfo(f"Numba warmup done in {time.time() - t:.2f} seconds.")
-
+    
     def initialize_particles(self,num_particles=100):
 
         if self.initialized == True:
