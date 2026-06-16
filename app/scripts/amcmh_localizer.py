@@ -160,13 +160,13 @@ class AMCMHLocalizer:
             ts = message_filters.ApproximateTimeSynchronizer([scan_sub, odom_sub], queue_size=10, slop=0.1)
             ts.registerCallback(self.sync_callback)
         else:
-            rospy.Subscriber(self.scan_topic, LaserScan, self.lidar_callback, queue_size=1, buff_size=2**24)
-            rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=1, buff_size=2**24)
+            rospy.Subscriber(self.scan_topic, LaserScan, self.lidar_callback, queue_size=10, buff_size=2**24)
+            rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=10, buff_size=2**24)
 
         # Publishers
-        self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=1)
-        self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=1)
-        self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=1)
+        self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=10)
+        self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
+        self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=10)
         
         # TF
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
@@ -350,7 +350,7 @@ class AMCMHLocalizer:
             self.z_short, self.z_max, self.lambda_short
         )
 
-        weights = np.exp(scores)  
+        weights = np.exp(scores- np.max(scores))  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
 
         return weights
 
@@ -391,16 +391,26 @@ class AMCMHLocalizer:
     def lidar_callback(self, msg):
 
         
-        print(f"[DEBUG] Received LiDAR scan.")
         self.accept_odom = False
         #print(f"[DEBUG] Total odom steps used: {self.odom_count}")
 
+        # Recover each meta-particle pose as the weighted mean meta_xy / Σw.
+        # When Σw collapses to ~0 the mean is undefined (numerator ~0 too), so a
+        # denominator floor would send the particle to the origin. Instead, mark
+        # those particles and fall back to their last known pose (particles_prev,
+        # which meta_xy/meta_weights were built from, so indices align).
         weight_safe = self.meta_weights.copy()
-        weight_safe[weight_safe <1e-9 ] = 1  # Avoid division by zero
+        degenerate = weight_safe < 1e-10
+        weight_safe[degenerate] = 1.0  # placeholder; these rows are overwritten below
+        print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={np.max(self.meta_weights):.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
-        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
-        
+        meta_xy =self.meta_xy / weight_safe[:, np.newaxis] # Compute mean x and y from weighted sum
+
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
+
+        # Degenerate particles keep their last known pose rather than (0,0)
+        meta_xy[degenerate] = self.particles_prev[degenerate, :2]
+        meta_theta[degenerate] = self.particles_prev[degenerate, 2]
 
         self.particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
         #print(f"[DEBUG] Meta particles after incorporating path history (before scan update): {self.meta_particles}")
@@ -436,17 +446,15 @@ class AMCMHLocalizer:
         
         else:
             Neff = 1.0 / np.sum(self.weights**2)
-            #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-            if Neff < self.num_particles *0.7 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
+            print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+            if Neff < self.num_particles/2 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
                 self.resample_lvr()
-        print(f"[DEBUG] Resampling done in {time.time() - t:.5f} seconds.")
         
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
         #print(f"[DEBUG] Updated particles prev")
 
         t = time.time()
         self.meta_weights = self.calculate_unorm_weights(self.particles_prev)  # Update meta weights for the next iteration
-        print(f"[DEBUG] Unorm weights in {time.time() - t:.5f} seconds.")
         self.weights_pre = self.meta_weights.copy()  # Update weights_pre to the new meta weights for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
 
         self.meta_xy = self.particles_prev[:, :2] * self.meta_weights[:, np.newaxis]  # Update meta xy for the next iteration
@@ -461,7 +469,6 @@ class AMCMHLocalizer:
         self.publish_estimate()
         t = time.time()
         self.publish_particles()
-        print(f"[DEBUG] Particles published in {time.time() - t:.5f} seconds.")
 
     def update_scans(self,scan):
 
@@ -495,7 +502,7 @@ class AMCMHLocalizer:
     def odom_callback(self, msg):
         
         if self.scan_ranges is None or self.accept_odom == False:
-            print(f"[DEBUG] Odometry update skipped: scan_ranges is None or accept_odom is False (accept_odom={self.accept_odom})")
+            #print(f"[DEBUG] Odometry update skipped: scan_ranges is None or accept_odom is False (accept_odom={self.accept_odom})")
             return
         
         #rospy.loginfo("Moving particles with odometry using particle prev")

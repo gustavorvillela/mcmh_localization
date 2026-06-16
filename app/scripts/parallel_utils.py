@@ -167,7 +167,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             log_score += np.log(p + 1e-10)
             valid_count += 1
 
-        scores[i] = log_score # Scale down to prevent overflow in exp
+        scores[i] = log_score/valid_count # Scale down to prevent overflow in exp
 
     return scores
 
