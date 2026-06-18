@@ -4,7 +4,7 @@ import re
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
-
+import statsmodels.api as sm
 
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
@@ -85,6 +85,50 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"Plot saved at: {plot_path}")
+
+    # Action: Plot the quantile-quantile diagram for the best run of each algo
+    # I/ best_runs
+    # O/ Nothing
+    # Necessity: 
+    # Produce: A QQ plot per algo for the best run if exist 
+def plot_QQ (scenario, best_per_algo, plots_dir) :
+    plt.figure(figsize=(8, 6))
+    dic_intern = {0:"x",1:"y",2:"yaw"}
+
+    for algo, (particles, rmse, best_run) in best_per_algo.items():
+    
+        est = best_run["est"]
+        gt = best_run["gt"]
+        mh = best_run.get("mh")
+
+        x_gt, y_gt = gt[:, 0], gt[:, 1]
+        x_est, y_est = est[:, 0], est[:, 1]
+        yaw_gt = np.degrees(gt[:, 2])
+        yaw_est = np.degrees(est[:, 2])
+
+        i = 0
+        for est_ax, gt_ax in zip((x_est, y_est, yaw_est), (x_gt, y_gt, yaw_gt)) :
+            title = f"QQ plot of {dic_intern[i]} for {algo} - {scenario}"
+
+            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dic_intern[i]}.png")
+            
+            sm.qqplot_2samples(gt_ax, est_ax,
+                line="45"
+            )
+
+            plt.title(title)
+            plt.xlabel("Ground true")
+            plt.ylabel("Estimated")
+
+            plt.grid(True, linestyle='--', alpha=0.4)
+            plt.axis("equal")
+            plt.tight_layout()
+            plt.savefig(plot_path, dpi=200)
+            plt.close()
+            print(f"QQ plot saved at: {plot_path}")
+            
+            i += 1
+
 
 def calculate_yaw_rmse(est, gt):
     
@@ -432,6 +476,10 @@ def main():
             mh_rate_path,
             styles
         )
+
+        # --- Plot quantile-quantile for best run only
+        plot_QQ (scenario, best_per_algo, plots_dir)
+
         
     generate_html_report(data, plots_dir, True)
 
