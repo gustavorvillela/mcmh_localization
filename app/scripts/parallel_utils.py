@@ -121,8 +121,12 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         mx_r = int((x - map_origin[0]) / map_resolution)
         my_r = int((y - map_origin[1]) / map_resolution)
 
-        total_beams = len(range(0, len(scan_ranges), step))
-        worst_case  = np.log(z_rand / max_range + 1e-10)*total_beams  # Worst case if all beams are random
+        # Worst case = "all beams random", expressed as a PER-BEAM average so it
+        # lives on the same scale as the valid score below (log_score/valid_count).
+        # Using the full sum (*total_beams) here made rejected particles ~ -1500,
+        # which underflows to exactly 0.0 in exp(score-max) -> degenerate weights
+        # and a 0/0 meta reconstruction that drags particles to the origin.
+        worst_case  = np.log(z_rand / max_range + 1e-10)  # Worst case if all beams are random (per-beam)
         
         # 1. BODY CHECK: Reject if outside map or inside/on a wall
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:

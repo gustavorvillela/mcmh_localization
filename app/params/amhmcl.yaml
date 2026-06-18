@@ -18,12 +18,12 @@
 #localization_mode: "MHMCL"  
 initialized: False
 use_sim_time: True
-init_particles: 100
+init_particles: 200
 headless: False  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
 
-meta_lambda: 0.52  # Exponential recency weighting factor for Meta-MH 
-random_steps: 60  # Number of random walk steps per odometry update (tune based on your robot's motion characteristics)
+meta_lambda: 0.72  # Exponential recency weighting factor for Meta-MH 
+random_steps: 50  # Number of random walk steps per odometry update (tune based on your robot's motion characteristics)
 
 #=======================================
 # Motion model parameters
@@ -37,10 +37,10 @@ alpha3: 0.18  # translation noise due to translation - 0.28
 alpha4: 0.05  # translation noise due to rotation - 0.075
 
 # Additional noise parameters for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
-alpha5: 0.145  # additional noise for in-place rotation - 0.02
-alpha6: 0.145  # additional noise for in-place translation - 0.04
-alpha7: 0.142  # additional noise for small forward movement - 0.01
-alpha8: 0.142   # additional noise for small backward movement - 0.01
+alpha5: 0.215  # additional noise for in-place rotation - 0.02
+alpha6: 0.215  # additional noise for in-place translation - 0.04
+alpha7: 0.212  # additional noise for small forward movement - 0.01
+alpha8: 0.212   # additional noise for small backward movement - 0.01
 
 #=======================================
 # KLD Resampling parameters

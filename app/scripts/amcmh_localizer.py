@@ -167,6 +167,7 @@ class AMCMHLocalizer:
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=10)
         self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
         self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=10)
+        self.Neff_pub = rospy.Publisher('/effective_sample_size', Float64, queue_size=10)
         
         # TF
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
@@ -175,7 +176,7 @@ class AMCMHLocalizer:
         
         self.publish_particles()
         self.acc_rate.publish(Float64(1.0))
-
+        self.Neff_pub.publish(Float64(self.num_particles))
         self._viz_count = 0
         
         rospy.spin()
@@ -399,39 +400,43 @@ class AMCMHLocalizer:
         # denominator floor would send the particle to the origin. Instead, mark
         # those particles and fall back to their last known pose (particles_prev,
         # which meta_xy/meta_weights were built from, so indices align).
+        # Degeneracy test is RELATIVE to the strongest particle, so it is
+        # invariant to the absolute weight scale (the likelihood is now a
+        # per-beam average, so weights are O(0.01..1), never ~1e-300).
         weight_safe = self.meta_weights.copy()
-        degenerate = weight_safe < 1e-10
-        weight_safe[degenerate] = 1.0  # placeholder; these rows are overwritten below
-        print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={np.max(self.meta_weights):.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
+        max_w = np.max(weight_safe)
+        degenerate = weight_safe < 1e-12 * max(max_w, 1e-300)
+        weight_safe[degenerate] = 1e-12  # placeholder; these rows are overwritten below
+        print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={max_w:.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
-        meta_xy =self.meta_xy / weight_safe[:, np.newaxis] # Compute mean x and y from weighted sum
+        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
 
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
-        # Degenerate particles keep their last known pose rather than (0,0)
-        meta_xy[degenerate] = self.particles_prev[degenerate, :2]
-        meta_theta[degenerate] = self.particles_prev[degenerate, 2]
+        # Degenerate (or any non-finite) reconstruction keeps the particle's last
+        # known pose rather than collapsing to (0,0).
+        bad = degenerate | ~np.isfinite(meta_xy).all(axis=1) | ~np.isfinite(meta_theta)
+        meta_xy[bad] = self.particles_prev[bad, :2]
+        meta_theta[bad] = self.particles_prev[bad, 2]
 
         self.particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
         #print(f"[DEBUG] Meta particles after incorporating path history (before scan update): {self.meta_particles}")
         self.update_scans(msg)
-        #weights = self.calculate_weights(self.particles)  # Final weight update for the meta particles based on the current scan
-        weights = self.meta_weights/np.sum(self.meta_weights)  # Normalize meta weights to get the final weights for this scan, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
-        #print(f"[DEBUG] Final meta particles (before normalization): {self.particles} | weights: {weights}")
+
+
         # ==========================
         # Final meta weights update
         # ==========================
         
         if self.use_adaptive:
         
-            self.update_acml_weights(weights)
+            self.update_acml_weights(self.meta_weights)
         
         else:
-        
+            
+            weights = self.meta_weights/np.sum(self.meta_weights)  # Normalize meta weights to get the final weights for this scan, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
             self.weights = weights
 
-        #self.Neff = 1.0 / np.sum(self.weights**2)
-        #print(f"[DEBUG] Effective sample size (Neff): {self.Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         # =======================
         # Publish and resampling
         # =======================
@@ -440,13 +445,14 @@ class AMCMHLocalizer:
         self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
 
         t = time.time()
+        Neff = 1.0 / np.sum(self.weights**2)
+        print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+        self.Neff_pub.publish(Float64(Neff))
         if self.use_adaptive:
         
             self.resample_amcl_kld()
         
         else:
-            Neff = 1.0 / np.sum(self.weights**2)
-            print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
             if Neff < self.num_particles/2 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
                 self.resample_lvr()
         
@@ -887,7 +893,7 @@ class AMCMHLocalizer:
             return
         
         self._viz_count = getattr(self, '_viz_count', 0) + 1
-        if self._viz_count % 3:        # publish on every 3rd call
+        if self._viz_count % 1:        # publish on every 3rd call
             return
 
         marker_array = MarkerArray()
@@ -1006,6 +1012,10 @@ class AMCMHLocalizer:
             weights = weights_post
             acc_rate = 0.0
 
+        Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
+        print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+        self.Neff_pub.publish(Float64(Neff))
+
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
         t = time.time()
         if self.use_adaptive:
@@ -1014,8 +1024,6 @@ class AMCMHLocalizer:
             self.num_particles = len(self.particles)
         else:
             self.weights = weights
-            Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
-            print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
             if Neff < self.num_particles / 2.0:
                 self.resample_lvr()
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
