@@ -6,13 +6,15 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import statsmodels.api as sm
 
+list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
+
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
     return int(match.group(1)) if match else None
 
 def extract_algorithm(filename):
     parts = filename.replace('.txt', '').split('_')
-    for algo in ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL']:
+    for algo in list_algos:
         if algo in parts:
             return algo
     return None
@@ -27,7 +29,7 @@ def extract_scenario(filename):
     name = re.sub(r'_\d+p_', '_', name)
 
     # remove algorithm names
-    for algo in ['MCL','AMCL','MHMCL','MHAMCL','AMHMCL','AMHAMCL']:
+    for algo in list_algos:
         name = name.replace("_" + algo, "")
 
     # remove run index if present
@@ -124,9 +126,9 @@ def plot_QQ (scenario, best_per_algo, plots_dir) :
 
         i = 0
         for est_ax, gt_ax in zip((x_est, y_est, yaw_est), (x_gt, y_gt, yaw_gt)) :
-            title = f"QQ plot of {dic_intern[i]} for {algo} - {scenario}"
+            title = f"QQ plot of {dic_intern[i]} for {algo} {particles}p - {scenario}"
 
-            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dic_intern[i]}.png")
+            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dic_intern[i]}_{particles}p.png")
             
             sm.qqplot_2samples(gt_ax, est_ax,
                 line="45"
