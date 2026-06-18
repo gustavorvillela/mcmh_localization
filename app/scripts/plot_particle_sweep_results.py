@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
+list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
@@ -12,7 +13,7 @@ def extract_particles(filename):
 
 def extract_algorithm(filename):
     parts = filename.replace('.txt', '').split('_')
-    for algo in ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL']:
+    for algo in list_algos:
         if algo in parts:
             return algo
     return None
@@ -27,7 +28,7 @@ def extract_scenario(filename):
     name = re.sub(r'_\d+p_', '_', name)
 
     # remove algorithm names
-    for algo in ['MCL','AMCL','MHMCL','MHAMCL','AMHMCL','AMHAMCL']:
+    for algo in list_algos:
         name = name.replace("_" + algo, "")
 
     # remove run index if present
