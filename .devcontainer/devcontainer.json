@@ -31,6 +31,6 @@
 
   "remoteUser": "root",
 
-  "postCreateCommand": "bash -c 'source /opt/ros/noetic/setup.bash && cd /root/catkin_ws && catkin_make'",
+  "postCreateCommand": "bash -c 'source /opt/ros/noetic/setup.bash && cd /root/catkin_ws && catkin_make'"
 
 }

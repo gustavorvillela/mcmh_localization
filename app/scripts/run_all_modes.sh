@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Uso:
-#   ./run_all_modes.sh                 # roda todos os bags da pasta padrão
-#   ./run_all_modes.sh arquivo.bag     # roda apenas esse bag
-#   ./run_all_modes.sh pasta_de_bags/  # roda todos os bags dessa pasta
+# Usage:
+#   ./run_all_modes.sh                 # run all bags in the default folder
+#   ./run_all_modes.sh file.bag       # run only that bag
+#   ./run_all_modes.sh bags_folder/   # run all bags in that folder
 
 MODES=("MCL" "MHMCL" "MHAMCL" "AMCL" "AMHMCL" "AMHAMCL")
 #MODES=("MCL" "MHMCL" "AMHMCL")
@@ -11,14 +11,14 @@ MODES=("MCL" "MHMCL" "MHAMCL" "AMCL" "AMHMCL" "AMHAMCL")
 
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=10   # número de repetições por cenário
+REPEATS=10   # number of repeats per scenario
 mkdir -p "$RESULTS_DIR"
 
 echo -e "\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
 
-# Determina origem dos bags
+# Determine source of bags
 if [ $# -eq 0 ]; then
-    # Caso sem argumentos: usa pasta padrão
+    # If no arguments: use default folder
     BAGS=("$DEFAULT_BAG_DIR"/*.bag)
 else
     BAGS=()
@@ -36,12 +36,12 @@ else
                 [ -e "$BAG_FILE" ] && BAGS+=("$BAG_FILE")
             done
         else
-            echo "Aviso: argumento inválido ($ARG), ignorado."
+            echo "Warning: invalid argument ($ARG), ignored."
         fi
     done
 
     if [ ${#BAGS[@]} -eq 0 ]; then
-        echo "Erro: nenhum arquivo .bag válido encontrado."
+        echo "Error: no valid .bag file found."
         exit 1
     fi
 fi
@@ -51,7 +51,7 @@ for BAG in "${BAGS[@]}"; do
     BAG_NAME=$(basename "$BAG" .bag)
     for MODE in "${MODES[@]}"; do
         for ((i=1; i<=REPEATS; i++)); do
-            echo -e "\n\n=== Rodando $MODE com $BAG (execução $i/$REPEATS) ===\n\n"
+            echo -e "\n\n=== Running $MODE with $BAG (run $i/$REPEATS) ===\n\n"
             export BAG_FILE="$BAG"
             RESULT_NAME="${BAG_NAME}_${MODE}_run${i}"
 
@@ -65,7 +65,7 @@ for BAG in "${BAGS[@]}"; do
             kill $WATCHDOG_PID 2>/dev/null
 
             if ps -p $LAUNCH_PID > /dev/null; then
-                echo "Processo travado, matando roslaunch (PID $LAUNCH_PID)"
+                echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
                 rosnode kill -a
                 sleep 2
                 kill $LAUNCH_PID

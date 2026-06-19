@@ -5,7 +5,7 @@ import numpy as np
 from collections import defaultdict
 
 def load_error_data(filepath):
-    """Carrega dados temporais e RMSE final do arquivo"""
+    """Load temporal data and final RMSE from file"""
     times = []
     errors = []
     final_rmse = None
@@ -24,11 +24,11 @@ def load_error_data(filepath):
                     
         return np.array(times), np.array(errors), final_rmse
     except Exception as e:
-        print(f"Erro ao ler {filepath}: {str(e)}")
+        print(f"Error reading {filepath}: {str(e)}")
         return None, None, None
 
 def load_trajectory_data(filepath):
-    """Carrega dados de trajetória do arquivo poses_*.txt"""
+    """Load trajectory data from poses_*.txt file"""
     data = {
         'time': [],
         'est_x': [],
@@ -61,13 +61,13 @@ def load_trajectory_data(filepath):
             
         return data
     except Exception as e:
-        print(f"Erro ao ler trajetória {filepath}: {str(e)}")
+        print(f"Error reading trajectory {filepath}: {str(e)}")
         return None
 
 def main():
     results_dir = os.path.join(os.path.dirname(__file__), '../results')
     if not os.path.exists(results_dir):
-        print(f"Pasta {results_dir} não encontrada.")
+        print(f"Folder {results_dir} not found.")
         return
 
     # Estrutura para armazenar todos os dados
@@ -114,15 +114,15 @@ def main():
                 })
                 if final_rmse is not None:
                     all_data[test_name][algorithm]['rmses'].append(final_rmse)
-                print(f"Processado: {filename} | Pontos: {len(times)} | RMSE: {final_rmse:.4f}")
+                print(f"Processed: {filename} | Points: {len(times)} | RMSE: {final_rmse:.4f}")
         elif 'p_run' in filename:
-            print(f"Ignorado (particle sweep): {filename}")
+            print(f"Ignored (particle sweep): {filename}")
 
     if not all_data:
-        print("Nenhum dado válido encontrado.")
+        print("No valid data found.")
         return
 
-    # Pós-processamento: calcular média, std e melhor run
+    # Post-processing: compute mean, std and best run
     for test_name, algos in all_data.items():
         for algo, data in algos.items():
             if data['rmses']:
@@ -135,13 +135,13 @@ def main():
                 data['std_rmse'] = None
                 data['best_run'] = None
 
-    # Cria diretório para os gráficos se não existir
+    # Create directory for plots if it doesn't exist
     plots_dir = os.path.join(results_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
 
     colors = {'MCL': '#ff7f0e', 'AMCL': '#1f77b4', 'MHMCL': "#b4331f", 'MHAMCL': '#2ca02c', 'AMHMCL': "#4C2F67", 'AMHAMCL': '#8c564b'}
 
-    # Gera gráficos para cada teste
+    # Generate plots for each test
     for test_name, algorithms in all_data.items():
         if len(algorithms) < 1:
             continue
@@ -149,7 +149,7 @@ def main():
         # Create figure with two subplots
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
         
-        # Plot 1: Error evolution (só melhor run)
+        # Plot 1: Error evolution (best run only)
         for algo, data in algorithms.items():
             best_run = data.get('best_run')
             if best_run and best_run['times'] is not None:
@@ -159,13 +159,13 @@ def main():
                         linewidth=2,
                         alpha=0.9)
         
-        ax1.set_title(f'Evolução do Erro - {test_name.replace("_", " ").title()}')
-        ax1.set_xlabel('Tempo (s)')
-        ax1.set_ylabel('Erro (m)')
+        ax1.set_title(f'Error Evolution - {test_name.replace("_", " ").title()}')
+        ax1.set_xlabel('Time (s)')
+        ax1.set_ylabel('Error (m)')
         ax1.legend()
         ax1.grid(True, linestyle='--', alpha=0.3)
         
-        # Plot 2: Trajectory comparison (só melhor run)
+        # Plot 2: Trajectory comparison (best run only)
         for algo, data in algorithms.items():
             best_run = data.get('best_run')
             if best_run and best_run['trajectory'] is not None:
@@ -183,14 +183,14 @@ def main():
                 # Plot start and end markers
                 ax2.scatter(traj['gt_x'][0], traj['gt_y'][0], 
                             color='green', marker='o', s=50, 
-                            label='Início' if algo == list(algorithms.keys())[0] else '')
+                            label='Start' if algo == list(algorithms.keys())[0] else '')
                 ax2.scatter(traj['gt_x'][-1], traj['gt_y'][-1], 
                             color='red', marker='x', s=50,
-                            label='Fim' if algo == list(algorithms.keys())[0] else '')
+                            label='End' if algo == list(algorithms.keys())[0] else '')
         
-        ax2.set_title(f'Comparação de Trajetórias - {test_name.replace("_", " ").title()}')
-        ax2.set_xlabel('Posição X (m)')
-        ax2.set_ylabel('Posição Y (m)')
+        ax2.set_title(f'Trajectory Comparison - {test_name.replace("_", " ").title()}')
+        ax2.set_xlabel('Position X (m)')
+        ax2.set_ylabel('Position Y (m)')
         ax2.legend()
         ax2.grid(True, linestyle='--', alpha=0.3)
         ax2.axis('equal')
@@ -200,9 +200,9 @@ def main():
         plt.tight_layout()
         plt.savefig(plot_path, bbox_inches='tight', dpi=150)
         plt.close()
-        print(f"Gráfico combinado salvo: {plot_path}")
+        print(f"Combined plot saved: {plot_path}")
 
-        # Gráfico de barras comparativo (média ± std)
+        # Comparative bar chart (mean ± std)
         plt.figure(figsize=(8, 5))
         
         sorted_algs = sorted(algorithms.items(), 
@@ -224,24 +224,24 @@ def main():
                         fontsize=8)
 
         plt.xticks(range(len(sorted_algs)), [x[0] for x in sorted_algs])
-        plt.title(f'RMSE Final (média ± std) - {test_name.replace("_", " ").title()}')
+        plt.title(f'Final RMSE (mean ± std) - {test_name.replace("_", " ").title()}')
         plt.ylabel('RMSE (m)')
         plt.grid(True, axis='y', linestyle='--', alpha=0.3)
         
         bar_plot_path = os.path.join(plots_dir, f'{test_name}_rmse_comparison.png')
         plt.savefig(bar_plot_path, bbox_inches='tight', dpi=150)
         plt.close()
-        print(f"Gráfico de RMSE salvo: {bar_plot_path}")
+        print(f"RMSE plot saved: {bar_plot_path}")
 
     # Gera tabela resumo HTML
     generate_html_summary(all_data, results_dir)
 
 def generate_html_summary(data, output_dir):
-    """Gera relatório HTML com todos os resultados"""
+    """Generate HTML report with all results"""
     html_content = """
     <html>
     <head>
-        <title>Relatório de Desempenho</title>
+        <title>Performance Report</title>
         <style>
             body { font-family: Arial, sans-serif; margin: 20px; }
             h1 { color: #2c3e50; }
@@ -257,12 +257,12 @@ def generate_html_summary(data, output_dir):
         </style>
     </head>
     <body>
-        <h1>Relatório de Desempenho - Algoritmos de Localização</h1>
+        <h1>Performance Report - Localization Algorithms</h1>
     """
     
-    # Tabela resumo
-    html_content += "<h2>Resumo Comparativo (média ± std)</h2><table>"
-    html_content += "<tr><th>Teste</th><th>MCL</th><th>AMCL</th><th>MHMCL</th><th>MHAMCL</th><th>AMHMCL</th><th>AMHAMCL</th></tr>"
+    # Summary table
+    html_content += "<h2>Comparative Summary (mean ± std)</h2><table>"
+    html_content += "<tr><th>Test</th><th>MCL</th><th>AMCL</th><th>MHMCL</th><th>MHAMCL</th><th>AMHMCL</th><th>AMHAMCL</th></tr>"
     
     for test_name in sorted(data.keys()):
         html_content += f"<tr><td>{test_name.replace('_', ' ').title()}</td>"
@@ -281,18 +281,18 @@ def generate_html_summary(data, output_dir):
     
     html_content += "</table>"
     
-    # Seção de gráficos
-    html_content += "<h2>Gráficos Detalhados</h2>"
+    # Plots section
+    html_content += "<h2>Detailed Plots</h2>"
     for test_name in sorted(data.keys()):
         html_content += f"""
         <div class="plot-container">
             <div class="plot">
-                <h3>{test_name.replace('_', ' ').title()} - Análise Completa</h3>
-                <img src="plots/{test_name}_combined.png" alt="Análise completa">
+                <h3>{test_name.replace('_', ' ').title()} - Full Analysis</h3>
+                <img src="plots/{test_name}_combined.png" alt="Full analysis">
             </div>
             <div class="plot">
-                <h3>{test_name.replace('_', ' ').title()} - RMSE Final (média ± std)</h3>
-                <img src="plots/{test_name}_rmse_comparison.png" alt="Comparação RMSE">
+                <h3>{test_name.replace('_', ' ').title()} - Final RMSE (mean ± std)</h3>
+                <img src="plots/{test_name}_rmse_comparison.png" alt="RMSE comparison">
             </div>
         </div>
         """
@@ -303,7 +303,7 @@ def generate_html_summary(data, output_dir):
     with open(report_path, 'w') as f:
         f.write(html_content)
     
-    print(f"\nRelatório completo gerado: {report_path}")
+    print(f"\nFull report generated: {report_path}")
 
 if __name__ == '__main__':
     main()

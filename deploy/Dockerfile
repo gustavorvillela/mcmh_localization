@@ -21,7 +21,8 @@ RUN pip3 install --no-cache-dir --upgrade \
     numpy==1.24.4 \
     scipy \
     numba \
-    matplotlib
+    matplotlib \
+    statsmodels
 
 # Install default ROS packages for TurtleBot3
 RUN apt-get update && apt-get install -y \

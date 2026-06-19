@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# Executa variações na quantidade de partículas
-# Uso:
+# Run particle count variations
+# Usage:
 #   ./run_particle_sweep.sh
-#   ./run_particle_sweep.sh L_rest.bag    # para rodar apenas esse bag
+#   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
-MODES=("MCL" "MHMCL")  # Pode ajustar conforme quiser
-PARTICLE_COUNTS=(250 500 1000 2000 4000)  # valores de partículas a testar
+MODES=("MCL" "MHMCL" "3MCL")  # Can adjust as desired
+PARTICLE_COUNTS=(250 500 1000 2000 4000)  # particle counts to test
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
-REPEATS=30   # número de repetições por configuração
-MODEL= "turtlebot3_$TURTLEBOT3_MODEL"  # modelo do TurtleBot3 (waffle ou burger)
+REPEATS=30   # number of repeats per configuration
+MODEL= "turtlebot3_$TURTLEBOT3_MODEL"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
 
@@ -43,9 +43,10 @@ until rostopic list >/dev/null 2>&1; do
     sleep 1
 done
 echo "roscore is ready!"
-# Determina origem dos bags
+# Determine source of bags
 if [ $# -eq 0 ]; then
-    BAGS=("$DEFAULT_BAG_DIR"/*.bag)
+    #BAGS=("$DEFAULT_BAG_DIR"/*.bag)
+    BAGS="$DEFAULT_BAG_DIR"/explore_bin.bag # Only selecting the map working for the run
 else
     BAGS=()
     for ARG in "$@"; do
@@ -60,22 +61,22 @@ else
                 [ -e "$BAG_FILE" ] && BAGS+=("$BAG_FILE")
             done
         else
-            echo "Aviso: argumento inválido ($ARG), ignorado."
+            echo "Warning: invalid argument ($ARG), ignored."
         fi
     done
     if [ ${#BAGS[@]} -eq 0 ]; then
-        echo "Erro: nenhum arquivo .bag válido encontrado."
+        echo "Error: no valid .bag file found."
         exit 1
     fi
 fi
 
-# Loop principal: para cada bag, modo e número de partículas
+# Main loop: for each bag, mode and particle count
 for BAG in "${BAGS[@]}"; do
     BAG_NAME=$(basename "$BAG" .bag)
     for MODE in "${MODES[@]}"; do
         for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
             for ((i=1; i<=REPEATS; i++)); do
-                echo "=== Rodando $MODE com $BAG ($PCOUNT partículas, execução $i/$REPEATS) ==="
+                echo "=== Running $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
                 export BAG_FILE="$BAG"
                 RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
 
@@ -94,7 +95,7 @@ for BAG in "${BAGS[@]}"; do
                 kill $WATCHDOG_PID 2>/dev/null
 
                 if ps -p $LAUNCH_PID > /dev/null; then
-                    echo "Processo travado, matando roslaunch (PID $LAUNCH_PID)"
+                    echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
                     kill $LAUNCH_PID
                 fi
 
@@ -112,8 +113,8 @@ if [ ! -z "$ROSCORE_PID" ]; then
     kill $ROSCORE_PID
 fi
 
-# Gerar plots
-echo "Gerando plots..."
+# Generate plots
+echo "Generating plots..."
 
 source /opt/ros/noetic/setup.bash
 source ~/catkin_ws/devel/setup.bash
@@ -122,8 +123,8 @@ PLOT_SCRIPT="$(rospack find mcmh_localization)/scripts/plot_particle_sweep_resul
 EVAL_SCRIPT="$(rospack find mcmh_localization)/scripts/offline_evaluate.py"
 
 if [ -f "$PLOT_SCRIPT" ]; then
-    python3 "$EVAL_SCRIPT"  # Gera CSVs de avaliação
+    python3 "$EVAL_SCRIPT"  # Generate evaluation CSVs
     python3 "$PLOT_SCRIPT"
 else
-    echo "Erro: script de plot não encontrado!"
+    echo "Error: plot script not found!"
 fi

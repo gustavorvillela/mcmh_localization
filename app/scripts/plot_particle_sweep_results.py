@@ -4,7 +4,9 @@ import re
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
+import statsmodels.api as sm
 
+list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
@@ -12,7 +14,7 @@ def extract_particles(filename):
 
 def extract_algorithm(filename):
     parts = filename.replace('.txt', '').split('_')
-    for algo in ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL']:
+    for algo in list_algos:
         if algo in parts:
             return algo
     return None
@@ -27,7 +29,7 @@ def extract_scenario(filename):
     name = re.sub(r'_\d+p_', '_', name)
 
     # remove algorithm names
-    for algo in ['MCL','AMCL','MHMCL','MHAMCL','AMHMCL','AMHAMCL']:
+    for algo in list_algos:
         name = name.replace("_" + algo, "")
 
     # remove run index if present
@@ -57,10 +59,10 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     stat_type = "Mean" if stat == "mean" else "Std Dev"
      
     ylabel = f"{path_type} - {stat_type} {measure}"
-    title = f"{path_type} RMSE {stat_type} vs Número de Partículas - {scenario}"
+    title = f"{path_type} RMSE {stat_type} vs Number of Particles - {scenario}"
 
     plt.title(title)
-    plt.xlabel("Número de Partículas")
+    plt.xlabel("Number of Particles")
     plt.ylabel(ylabel)
 
     for algo, results in data.items():
@@ -84,7 +86,67 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     plt.tight_layout()
     plt.savefig(plot_path, dpi=200)
     plt.close()
-    print(f"Gráfico salvo em: {plot_path}")
+    print(f"Plot saved at: {plot_path}")
+
+    # Action: Plot the quantile-quantile diagram for the best run of each algo
+    # I/ scenario: String
+    # I/ best_per_algo: Dic {Str algo:
+    #                           Tuple (
+    #                               Int particle,
+    #                               Int rmse, 
+    #                               Dic best_run {
+    #                                   List est [[x],[y],[yaw]],
+    #                                   List gt [[x],[y],[yaw]],
+    #                                   Float mh OR None
+    #                               }
+    #                           )
+    #                   }
+    # I/ plots_dir: path-like object
+    # O/ Nothing
+    # Necessity: A dictionnary best_per_algo matching the spec 
+    #           and plots_dir a valid path
+    # Produce: Per algo: a QQ plot per state variable dimension
+    #           (x,y,yaw for example) of the best run then store it with name
+    #           scenario_algo_qq_dimension.png
+def plot_QQ (scenario, best_per_algo, plots_dir) :
+    plt.figure(figsize=(8, 6))
+    dic_intern = {0:"x",1:"y",2:"yaw"}
+
+    
+    for algo, (particles, rmse, best_run) in best_per_algo.items():
+    
+        est = best_run["est"]
+        gt = best_run["gt"]
+        mh = best_run.get("mh")
+
+        x_gt, y_gt = gt[:, 0], gt[:, 1]
+        x_est, y_est = est[:, 0], est[:, 1]
+        yaw_gt = np.degrees(gt[:, 2])
+        yaw_est = np.degrees(est[:, 2])
+
+        i = 0
+        for est_ax, gt_ax in zip((x_est, y_est, yaw_est), (x_gt, y_gt, yaw_gt)) :
+            title = f"QQ plot of {dic_intern[i]} for {algo} {particles}p - {scenario}"
+
+            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dic_intern[i]}_{particles}p.png")
+            
+            sm.qqplot_2samples(gt_ax, est_ax,
+                line="45"
+            )
+
+            plt.title(title)
+            plt.xlabel("Ground true")
+            plt.ylabel("Estimated")
+
+            plt.grid(True, linestyle='--', alpha=0.4)
+            plt.axis("equal")
+            plt.tight_layout()
+            plt.savefig(plot_path, dpi=200)
+            plt.close()
+            print(f"QQ plot saved at: {plot_path}")
+            
+            i += 1
+
 
 def calculate_yaw_rmse(est, gt):
     
@@ -138,7 +200,7 @@ def load_trajectory(filepath):
                 mh.append(mh_rate)
 
     except Exception as e:
-        print(f"Erro lendo trajetória {filepath}: {e}")
+        print(f"Error reading trajectory {filepath}: {e}")
 
     return np.array(est), np.array(gt), mh
 
@@ -374,10 +436,10 @@ def main():
                             "gt": gt,
                             "mh": mh
                     }
-                    print(f"Trajetória carregada: {filename} | {scenario} | {algo} | {particles}p")
+                    print(f"Loaded trajectory: {filename} | {scenario} | {algo} | {particles}p")
 
     if not data:
-        print("Nenhum dado válido encontrado.")
+        print("No valid data found.")
         return
 
     styles = {
@@ -432,6 +494,10 @@ def main():
             mh_rate_path,
             styles
         )
+
+        # --- Plot quantile-quantile for best run only
+        plot_QQ (scenario, best_per_algo, plots_dir)
+
         
     generate_html_report(data, plots_dir, True)
 

@@ -1,19 +1,19 @@
 <launch>
-  <!-- Argumentos -->
+  <!-- Arguments -->
   <arg name="bag_file" default="$(env BAG_FILE)"/>
   <arg name="mode" default="MCL"/>
   <arg name="robot_name" default="turtlebot3_waffle"/>
 
-  <!-- Define nome do arquivo de resultado (sem extensão) -->
+  <!-- Define result filename (without extension) -->
   <arg name="result_name" default=""/>
 
-  <!-- Carrega parâmetros gerais -->
+  <!-- Load general parameters -->
   <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
 
-  <!-- Extensão para o nome do resultado -->
+  <!-- Extension for result name -->
   <arg name="name_ext" default=""/>
 
-  <!-- Avaliação da estimativa vs ground truth -->
+  <!-- Evaluation of estimate vs ground truth -->
   <node name="evaluate_localization" pkg="mcmh_localization" type="evaluate_localization.py" output="screen">
     <param name="result_name" value="$(find mcmh_localization)/results/$(arg name_ext)$(arg result_name)"/>
     <param name="est_topic" value="/mcmh_estimated_pose"/>
@@ -22,10 +22,10 @@
   </node>
   
 
-  <!-- Carrega o parâmetro do modo -->
+  <!-- Load mode parameter -->
   <param name="localization_mode" value="$(arg mode)"/>
 
-  <!-- Publisher contínuo de pose inicial 
+  <!-- Continuous initial pose publisher 
   <node name="continuous_initial_pose_publisher" pkg="mcmh_localization" type="initial_pose_pub.py" output="screen">
     <param name="x" value="-2.0"/>
     <param name="y" value="-0.5"/>
@@ -41,13 +41,13 @@
     </rosparam>
   </node>-->
 
-  <!-- Nó do localizador -->
+  <!-- Localizer node -->
   <node name="mcmh_localizer" pkg="mcmh_localization" type="amcmh_localizer.py" output="screen" />
 
   <!-- Pose broadcaster -->
   <node name="pose_broadcaster" pkg="mcmh_localization" type="pose_broadcaster.py" output="screen" />
 
-  <!-- Player do rosbag com relógio simulado -->
+  <!-- Rosbag player with simulated clock -->
   <node pkg="rosbag" type="play" name="play_bag" args="--clock $(arg bag_file)" output="screen"/>
 
 </launch>

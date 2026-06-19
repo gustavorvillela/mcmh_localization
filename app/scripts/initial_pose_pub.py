@@ -7,7 +7,7 @@ class InitialPosePublisher:
     def __init__(self):
         rospy.init_node('initial_pose_publisher')
         
-        # Parâmetros configuráveis
+        # Configurable parameters
         self.publish_rate = rospy.get_param('~publish_rate', 1.0)  # Hz
         self.initial_x = rospy.get_param('~x', -2.0)
         self.initial_y = rospy.get_param('~y', -0.5)
@@ -21,19 +21,19 @@ class InitialPosePublisher:
         
         self.publisher = rospy.Publisher('/initial_pose', PoseWithCovarianceStamped, queue_size=10,latch=True)
         
-        rospy.loginfo(f"Inicializando publisher de pose inicial em ({self.initial_x}, {self.initial_y}, {np.degrees(self.initial_yaw):.1f}°)")
+        rospy.loginfo(f"Initializing initial pose publisher at ({self.initial_x}, {self.initial_y}, {np.degrees(self.initial_yaw):.1f}°)")
         
     def publish_initial_pose(self):
         msg = PoseWithCovarianceStamped()
         msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = "map"
         
-        # Definindo a posição
+        # Setting the position
         msg.pose.pose.position.x = self.initial_x
         msg.pose.pose.position.y = self.initial_y
         msg.pose.pose.position.z = 0.0
         
-        # Convertendo yaw para quaternion
+        # Converting yaw to quaternion
         cy = np.cos(self.initial_yaw * 0.5)
         sy = np.sin(self.initial_yaw * 0.5)
         msg.pose.pose.orientation.x = 0.0
@@ -41,7 +41,7 @@ class InitialPosePublisher:
         msg.pose.pose.orientation.z = sy
         msg.pose.pose.orientation.w = cy
         
-        # Definindo a covariância
+        # Setting covariance
         msg.pose.covariance = self.covariance
         
         self.publisher.publish(msg)
@@ -54,8 +54,8 @@ class InitialPosePublisher:
 
         # Publica apenas uma vez
         self.publish_initial_pose()
-        rospy.loginfo(f"Pose inicial publicada!")
-        # Mantém o nó vivo para que o tópico com latch continue disponível
+        rospy.loginfo(f"Initial pose published!")
+        # Keep the node alive so that the latched topic remains available
         rospy.spin()        
 
 if __name__ == '__main__':
