@@ -88,26 +88,26 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     plt.close()
     print(f"Plot saved at: {plot_path}")
 
-    # Action: Plot the quantile-quantile diagram for the best run of each algo
-    # I/ scenario: String
-    # I/ best_per_algo: Dic {Str algo:
-    #                           Tuple (
-    #                               Int particle,
-    #                               Int rmse, 
-    #                               Dic best_run {
-    #                                   List est [[x],[y],[yaw]],
-    #                                   List gt [[x],[y],[yaw]],
-    #                                   Float mh OR None
-    #                               }
-    #                           )
-    #                   }
-    # I/ plots_dir: path-like object
-    # O/ Nothing
-    # Necessity: A dictionnary best_per_algo matching the spec 
-    #           and plots_dir a valid path
-    # Produce: Per algo: a QQ plot per state variable dimension
-    #           (x,y,yaw for example) of the best run then store it with name
-    #           scenario_algo_qq_dimension.png
+# Action: Plot the quantile-quantile diagram for the best run of each algo
+# I/ scenario: String
+# I/ best_per_algo: Dic {Str algo:
+#                           Tuple (
+#                               Int particle,
+#                               Int rmse, 
+#                               Dic best_run {
+#                                   List est [[x],[y],[yaw]],
+#                                   List gt [[x],[y],[yaw]],
+#                                   Float mh OR None
+#                               }
+#                           )
+#                   }
+# I/ plots_dir: path-like object
+# O/ Nothing
+# Necessity: A dictionnary best_per_algo matching the spec 
+#           and plots_dir a valid path
+# Produce: Per algo: a QQ plot per state variable dimension
+#           (x,y,yaw for example) of the best run then store it with name
+#           scenario_algo_qq_dimension.png
 def plot_QQ (scenario, best_per_algo, plots_dir) :
     plt.figure(figsize=(8, 6))
     dic_intern = {0:"x",1:"y",2:"yaw"}
