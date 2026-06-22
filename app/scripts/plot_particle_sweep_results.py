@@ -110,7 +110,7 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 #           scenario_algo_qq_dimension.png
 def plot_QQ (scenario, best_per_algo, plots_dir) :
     plt.figure(figsize=(8, 6))
-    dic_intern = {0:"x",1:"y",2:"yaw"}
+    dict_intern = {0:"x",1:"y",2:"yaw"}
 
     
     for algo, (particles, rmse, best_run) in best_per_algo.items():
@@ -126,9 +126,9 @@ def plot_QQ (scenario, best_per_algo, plots_dir) :
 
         i = 0
         for est_ax, gt_ax in zip((x_est, y_est, yaw_est), (x_gt, y_gt, yaw_gt)) :
-            title = f"QQ plot of {dic_intern[i]} for {algo} {particles}p - {scenario}"
+            title = f"QQ plot of {dict_intern[i]} for {algo} {particles}p - {scenario}"
 
-            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dic_intern[i]}_{particles}p.png")
+            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dict_intern[i]}_{particles}p.png")
             
             sm.qqplot_2samples(gt_ax, est_ax,
                 line="45"
