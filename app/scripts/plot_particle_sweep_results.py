@@ -37,6 +37,11 @@ def extract_scenario(filename):
 
     return name.strip("_")
 
+def extract_run (filename) :
+    name = filename.replace(".txt", "")
+    parts = name.split('_')
+    run = parts[-1]
+    return run.replace('run', '')
 
 def extract_rmse(filepath):
     rmse_pos = None
