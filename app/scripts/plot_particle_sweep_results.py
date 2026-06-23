@@ -434,18 +434,28 @@ def main():
 
     trajectories = {}
 
+    # Data structure: data[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
+    data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
+        "recall_rate": [],
+        "effective_sample_size": []
+    }))))
+
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
     for filename in os.listdir(results_dir):
         if filename.endswith(".txt") and not filename.startswith("poses_"):
             algo = extract_algorithm(filename)
             particles = extract_particles(filename)
             scenario = extract_scenario(filename)
+            run = extract_run(filename)
             if algo and particles:
                 rmse_pos, rmse_yaw = extract_rmse(os.path.join(results_dir, filename))
                 if (rmse_pos is not None) and (rmse_yaw is not None):
                     data[scenario][algo][particles]["pos"].append(rmse_pos)
                     data[scenario][algo][particles]["yaw"].append(np.degrees(rmse_yaw))
                     print(f"{filename}: {scenario} | {algo} | {particles}p → RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}")
+                
+                file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
+                data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
             algo = extract_algorithm(filename)
