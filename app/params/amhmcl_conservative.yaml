@@ -1,0 +1,37 @@
+# Conservative parameter profile (C)
+# Robustness-oriented: more particles, tighter KLD bins, and more exploration.
+
+initialized: False
+use_sim_time: True
+init_particles: 1000
+min_particles: 250
+max_particles: 4000
+headless: False
+
+meta_lambda: 0.72
+random_steps: 60
+
+alpha1: 0.18
+alpha2: 0.18
+alpha3: 0.20
+alpha4: 0.06
+
+alpha5: 0.18
+alpha6: 0.18
+alpha7: 0.18
+alpha8: 0.18
+
+kld_epsilon: 0.008
+kld_z: 2.326
+kld_bin_size_xy: 0.01
+kld_bin_size_theta: 0.017
+kld_delta: 0.99
+
+alpha_slow: 0.0001
+alpha_fast: 0.01
+
+sigma_hit: 0.06
+z_hit: 0.88
+z_rand: 0.12
+max_range: 8.0
+step: 1

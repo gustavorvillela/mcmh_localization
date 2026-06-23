@@ -15,9 +15,18 @@ class Evaluator:
         self.robot_name = rospy.get_param("~robot_name", "turtlebot3_waffle")
 
         result_param = rospy.get_param("~result_name", "eval")
-        result_name = os.path.basename(result_param).replace(".txt", "")
+        default_results_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../results")
+        )
 
-        results_dir = os.path.join(os.path.dirname(__file__), "../results")
+        if os.path.isabs(result_param):
+            results_dir = os.path.dirname(result_param)
+            result_name = os.path.basename(result_param)
+        else:
+            results_dir = default_results_dir
+            result_name = result_param
+
+        result_name = os.path.basename(result_name).replace(".txt", "")
         os.makedirs(results_dir, exist_ok=True)
 
         self.poses_file = os.path.join(results_dir, f"poses_{result_name}.txt")
