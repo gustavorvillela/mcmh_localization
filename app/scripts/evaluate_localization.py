@@ -80,6 +80,12 @@ class Evaluator:
     def mh_callback(self, msg):
         self.mh_rate = msg.data
 
+    # Action: Save the value in suscriber into a list
+    # I/ Float64: msg
+    # I/O/ Self@Evaluator: self
+    # Necessity: A self that contain a List: Neff_history
+    #           and a valid Float64 message
+    # Produce: Append in self.Neff_history the value contained in msg
     def neff_callback (self, msg) :
         #print(f"[Test] : Neff={msg.data}")
         self.Neff_history.append(msg.data)
