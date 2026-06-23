@@ -410,7 +410,7 @@ def main():
 
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
     for filename in os.listdir(results_dir):
-        if filename.endswith(".txt") and not filename.startswith("poses_"):
+        if filename.endswith(".txt") and not (filename.startswith("poses_") or filename.startswith("neff_")):
             algo = extract_algorithm(filename)
             particles = extract_particles(filename)
             scenario = extract_scenario(filename)
