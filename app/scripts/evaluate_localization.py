@@ -13,6 +13,7 @@ class Evaluator:
         self.gt_topic = rospy.get_param("~gt_topic", "/gazebo/model_states")
         self.mh_topic = rospy.get_param("~mh_topic", "/mh_rate")
         self.robot_name = rospy.get_param("~robot_name", "turtlebot3_waffle")
+        self.Neff = rospy.get_param("~effective_sample_size", "/effective_sample_size")
 
         result_param = rospy.get_param("~result_name", "eval")
         result_name = os.path.basename(result_param).replace(".txt", "")
@@ -21,10 +22,13 @@ class Evaluator:
         os.makedirs(results_dir, exist_ok=True)
 
         self.poses_file = os.path.join(results_dir, f"poses_{result_name}.txt")
+        self.neff_file = os.path.join(results_dir, f"neff_{result_name}.txt")
 
         self.gt_pose = None
         self.mh_rate = None
         self.eval_start_time = None
+        
+        self.Neff_history = []
 
         # Store poses
         self.pose_history = []
@@ -32,6 +36,7 @@ class Evaluator:
         rospy.Subscriber(self.est_topic, PoseWithCovarianceStamped, self.estimated_callback)
         rospy.Subscriber(self.gt_topic, ModelStates, self.gt_callback)
         rospy.Subscriber(self.mh_topic, Float64, self.mh_callback)
+        rospy.Subscriber(self.Neff, Float64, self.neff_callback)
 
     def get_yaw_from_pose(self, pose):
         quat = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
@@ -75,6 +80,10 @@ class Evaluator:
     def mh_callback(self, msg):
         self.mh_rate = msg.data
 
+    def neff_callback (self, msg) :
+        #print(f"[Test] : Neff={msg.data}")
+        self.Neff_history.append(msg.data)
+
     def run(self):
         rospy.loginfo("Recording poses only...")
         rospy.spin()
@@ -86,14 +95,20 @@ class Evaluator:
 
         with open(self.poses_file, "w") as f:
             f.write("time,est_x,est_y,est_yaw,gt_x,gt_y,gt_yaw,mh_rate\n")
-            for data in self.pose_history:
+            for data in self.pose_history :
                 f.write(
                     f"{data[0]:.6f},{data[1]:.4f},{data[2]:.4f},{data[3]:.6f},"
                     f"{data[4]:.4f},{data[5]:.4f},{data[6]:.6f},{data[7]:.6f}\n"
                 )
 
+        with open(self.neff_file, "w") as f:
+            f.write("Neff\n")
+            for data in self.Neff_history:
+                f.write(
+                    f"{data:.0f}\n"
+                )
+        
         rospy.loginfo(f"Data saved to: {self.poses_file}")
-
 
 if __name__ == "__main__":
     rospy.init_node("evaluate_localization")
