@@ -57,6 +57,27 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
+def Recall_Rate (filepath) :
+    threshold_1 = [0.25, 2*180/np.pi]
+    threshold_2 = [0.5, 5*180/np.pi]
+    threshold_3 = [5, 10*180/np.pi]
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if not (line.startswith("RMSE position:") or line.startswith("RMSE final:") or line.startswith("time,error_pos,error_yaw")):
+                    time,error_pos,error_yaw = line.split(',')
+                    error_pos = float(error_pos)
+                    error_yaw = float(error_yaw)
+                    if [error_pos, error_yaw] < threshold_1:
+                        return "T1"
+                    elif threshold_1 < [error_pos, error_yaw] < threshold_2 :
+                        return "T2"
+                    elif threshold_2 < [error_pos, error_yaw] < threshold_3:
+                        return "T3"
+                    else: return None
+    except Exception as e:
+        print(f"Error opening {filepath}: {e}")
+
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
     plt.figure(figsize=(8, 6))
