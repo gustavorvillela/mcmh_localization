@@ -204,6 +204,52 @@ def plot_QQ (scenario, best_per_algo, plots_dir) :
             
             i += 1
 
+# Action: Plot the effective sample size vs time diagram for the best run
+#           of each algo
+# I/ scenario: String
+# I/ best_info: Dicionnary of witch nb_of_particule and run 
+#               was the best for every algo
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           plots_dir a valid path,
+#           scenario a valid senario
+#           and best_info matching the output of unpack_best_per_algo
+# Produce: A plot of the ESS for the best run per algo then store it with name
+#           scenario_ess_best.png
+def plot_ess (scenario, best_info, data_metrics, plots_dir, styles=None) :
+    plt.figure(figsize=(8, 6))
+     
+    title = f"Effective Sample Size vs time - {scenario}"
+
+    plt.title(title)
+    plt.xlabel("Time (iteration)")
+    plt.ylabel("Effective Sample Size (number of particle)")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_ess_best.png")
+
+    for algo in best_info.keys() :
+        particules, run = best_info[algo]
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.plot(
+            data_metrics[scenario][algo][particules][run]['effective_sample_size'],
+            label=style['label'],
+            color=style['color'],
+            linestyle=style['linestyle'],
+            marker=style['marker'],
+            linewidth=2
+        )
+    
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"ESS plot saved at: {plot_path}")
 
 def calculate_yaw_rmse(est, gt):
     
@@ -578,6 +624,8 @@ def main():
 
         # --- Plot quantile-quantile for best run only
         plot_QQ (scenario, best_per_algo, plots_dir)
+
+        plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
         
     generate_html_report(data, plots_dir, True)
