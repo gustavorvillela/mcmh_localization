@@ -37,6 +37,11 @@ def extract_scenario(filename):
 
     return name.strip("_")
 
+# Action: Extract witch run procude the result from the file name
+# I/ filename: String
+# O/ run: String
+# Necessity: A filename where every data is separate by "_" and where the run number is the last one
+# Produce: A string run wi9tch only contain the number of the run
 def extract_run (filename) :
     name = filename.replace(".txt", "")
     parts = name.split('_')
@@ -57,6 +62,15 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
+# Action: Calculate the Recall Rate at every step depending on the threshold
+# I/ filepath: String
+# O/ RR: List of "T1", "T1", "T1" or None
+# Necessity: A file where every line with raw data match the pattern time,error_pos,error_yaw all float
+# Produce: Per valid line: add a value in RR depending on the threshold:
+#               - T1 if under threshold 1
+#               - T2 if under threshold 2 and above 1
+#               - T3 if under threshold 3 and above 2
+#               - None if above threshold 3
 def Recall_Rate (filepath) :
     threshold_1 = [0.5, 10*np.pi/180]
     threshold_2 = [1, 50*np.pi/180]
@@ -459,7 +473,7 @@ def main():
                 
                 file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
-                print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]}")
+                #print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]}")
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
             algo = extract_algorithm(filename)
