@@ -24,6 +24,7 @@ def extract_scenario(filename):
 
     # remove poses_ prefix if present
     name = name.replace("poses_", "")
+
     # remove neff_ prefix if present
     name = name.replace("neff_", "")
 
@@ -262,6 +263,7 @@ def load_trajectory(filepath):
 
 def unpack_best_per_algo(summary_path, trajectories, current_scenario):
     best_runs = {}
+    best_info = {}
     if not os.path.exists(summary_path):
         print(f"Warning: {summary_path} not found.")
         return {}
@@ -283,9 +285,11 @@ def unpack_best_per_algo(summary_path, trajectories, current_scenario):
                 if algo not in best_runs or path_rmse < best_runs[algo][1]:
                     if fname in trajectories:
                         best_runs[algo] = (parts_count, path_rmse, trajectories[fname])
+                        run = extract_run(fname)
+                        best_info[algo] = (parts_count, run)
                     else:
                         print(f"Warning: Found {fname} in summary but no trajectory data loaded.")
-    return best_runs
+    return best_runs, best_info
 
 def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, mh_rate_path, styles=None):
 
@@ -557,7 +561,7 @@ def main():
 
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
-        best_per_algo = unpack_best_per_algo(summary_path, trajectories, scenario)
+        best_per_algo, best_info = unpack_best_per_algo(summary_path, trajectories, scenario)
 
         best_path = os.path.join(plots_dir, f"{scenario}_best_paths_all.png")
         ate_path = os.path.join(plots_dir, f"{scenario}_ate_all.png")
