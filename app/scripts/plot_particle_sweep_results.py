@@ -93,7 +93,7 @@ def Recall_Rate (filepath) :
                         RR.append(None)
         return RR
     except Exception as e:
-        print(f"Error opening {filepath} at line {line}: {e}")
+        print(f"Error opening {filepath}: {e}")
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
