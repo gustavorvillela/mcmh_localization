@@ -504,6 +504,16 @@ def main():
                             "mh": mh
                     }
                     print(f"Loaded trajectory: {filename} | {scenario} | {algo} | {particles}p")
+        
+        elif filename.endswith(".txt") and filename.startswith("neff_"):
+            algo = extract_algorithm(filename)
+            particles = extract_particles(filename)
+            scenario = extract_scenario(filename)
+            run = extract_run(filename)
+
+            if algo and particles:
+                file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
+                data_metrics[scenario][algo][particles][run]["effective_sample_size"] = extract_neff(file_path)
 
     if not data:
         print("No valid data found.")
