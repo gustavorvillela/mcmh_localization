@@ -64,6 +64,17 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
+def extract_neff (filepath):
+    Neff = []
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if line[0].isdigit():
+                    Neff.append(int(line))
+    except Exception as e:
+        print(f"Error opening {filepath} in extract_neff: {e}")
+    return Neff
+
 # Action: Calculate the Recall Rate at every step depending on the threshold
 # I/ filepath: String
 # O/ RR: List of "T1", "T1", "T1" or None
