@@ -58,25 +58,28 @@ def extract_rmse(filepath):
     return rmse_pos, rmse_yaw
 
 def Recall_Rate (filepath) :
-    threshold_1 = [0.25, 2*180/np.pi]
-    threshold_2 = [0.5, 5*180/np.pi]
-    threshold_3 = [5, 10*180/np.pi]
+    threshold_1 = [0.5, 10*np.pi/180]
+    threshold_2 = [1, 50*np.pi/180]
+    threshold_3 = [10, 100*np.pi/180]
     try:
         with open(filepath, 'r') as f:
+            RR = []
             for line in f:
-                if not (line.startswith("RMSE position:") or line.startswith("RMSE final:") or line.startswith("time,error_pos,error_yaw")):
-                    time,error_pos,error_yaw = line.split(',')
-                    error_pos = float(error_pos)
-                    error_yaw = float(error_yaw)
-                    if [error_pos, error_yaw] < threshold_1:
-                        return "T1"
-                    elif threshold_1 < [error_pos, error_yaw] < threshold_2 :
-                        return "T2"
-                    elif threshold_2 < [error_pos, error_yaw] < threshold_3:
-                        return "T3"
-                    else: return None
+                if line[0].isdigit():
+                    time,error_pos_str,error_yaw_str = line.split(",")
+                    error_pos = abs(float(error_pos_str))
+                    error_yaw = abs(float(error_yaw_str))
+                    if error_pos < threshold_1[0] and error_yaw < threshold_1[1]:
+                        RR.append("T1")
+                    elif error_pos < threshold_2[0] and error_yaw < threshold_2[1]:
+                        RR.append("T2")
+                    elif error_pos < threshold_3[0] and error_yaw < threshold_3[1]:
+                        RR.append("T3")
+                    else:
+                        RR.append(None)
+        return RR
     except Exception as e:
-        print(f"Error opening {filepath}: {e}")
+        print(f"Error opening {filepath} at line {line}: {e}")
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
@@ -437,7 +440,7 @@ def main():
     # Data structure: data[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
         "recall_rate": [],
-        "effective_sample_size": []
+        #"effective_sample_size": []
     }))))
 
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
@@ -456,6 +459,7 @@ def main():
                 
                 file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
+                print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]}")
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
             algo = extract_algorithm(filename)
