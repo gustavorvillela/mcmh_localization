@@ -24,6 +24,8 @@ def extract_scenario(filename):
 
     # remove poses_ prefix if present
     name = name.replace("poses_", "")
+    # remove neff_ prefix if present
+    name = name.replace("neff_", "")
 
     # remove particle specification
     name = re.sub(r'_\d+p_', '_', name)
@@ -454,7 +456,7 @@ def main():
     # Data structure: data_metrics[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
         "recall_rate": [],
-        #"effective_sample_size": []
+        "effective_sample_size": []
     }))))
 
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
