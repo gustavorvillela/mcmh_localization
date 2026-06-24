@@ -72,9 +72,9 @@ def extract_rmse(filepath):
 #               - T3 if under threshold 3 and above 2
 #               - None if above threshold 3
 def Recall_Rate (filepath) :
-    threshold_1 = [0.5, 10*np.pi/180]
-    threshold_2 = [1, 50*np.pi/180]
-    threshold_3 = [10, 100*np.pi/180]
+    threshold_1 = [0.25, 2*np.pi/180]
+    threshold_2 = [0.5, 5*np.pi/180]
+    threshold_3 = [5, 10*np.pi/180]
     try:
         with open(filepath, 'r') as f:
             RR = []
@@ -451,7 +451,7 @@ def main():
 
     trajectories = {}
 
-    # Data structure: data[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
+    # Data structure: data_metrics[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
         "recall_rate": [],
         #"effective_sample_size": []
