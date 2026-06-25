@@ -265,6 +265,60 @@ def plot_ess (scenario, best_info, data_metrics, plots_dir, styles=None) :
     plt.close()
     print(f"ESS plot saved at: {plot_path}")
 
+# Action: Plot the  success rate of algo for particule
+# I/ scenario: String
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           plots_dir a valid path,
+#           scenario a valid senario
+# Produce: A plot of the SR for all algos and number of particules then store
+#           it with name scenario_sr.png
+def plot_sr_vs_particles (scenario, data_metrics, plots_dir, styles=None) :
+    SR = {}
+    
+    plt.figure(figsize=(8, 6))
+    
+    title = f"Success rate vs Number of particules - {scenario}"
+
+    plt.title(title)
+    plt.xlabel("Nb of particules")
+    plt.ylabel("Success rate")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_sr.png")
+
+    for algo in data_metrics[scenario].keys() :
+        SR[algo] = []
+        part = []
+        for particules in data_metrics[scenario][algo].keys() :
+            N = len(data_metrics[scenario][algo][particules].keys())
+            sr = 0
+            for run in data_metrics[scenario][algo][particules].keys() :
+                if data_metrics[scenario][algo][particules][run]['success']: sr += 1
+            sr /= N
+            SR[algo].append(sr)
+            part.append(particules)
+        
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.scatter(
+            part, SR[algo],
+            label=style['label'],
+            color=style['color'],
+            linestyle=style['linestyle'],
+            marker=style['marker'],
+            linewidth=2
+        )
+    
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"SR plot saved at: {plot_path}")
+
 def calculate_yaw_rmse(est, gt):
     
     if est.shape[0] != gt.shape[0]:
@@ -643,6 +697,8 @@ def main():
         plot_QQ (scenario, best_per_algo, plots_dir)
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
+
+        plot_sr_vs_particles (scenario, data_metrics, plots_dir, styles)
 
         
     generate_html_report(data, plots_dir, True)
