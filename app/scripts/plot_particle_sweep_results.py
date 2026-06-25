@@ -109,6 +109,20 @@ def Recall_Rate (filepath) :
     except Exception as e:
         print(f"Error opening {filepath}: {e}")
 
+# Action: Determine if a run is successful or not
+# I/ scenario: String witch scenario
+# I/ algo: String what algo have been used
+# I/ particules: String how much particules
+# I/ run: String the number of the run
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# O/ success: Bool
+# Necessity: 
+# Produce: True if the run is successful (to be determined in this algorithms,
+#           here a simple RR comparison) else False
+def Success (data_metrics, scenario, algo, particles, run) :
+    success = data_metrics[scenario][algo][particles][run]['recall_rate'][-1] in ("T1", "T2", "T3")
+    return success
+
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
     plt.figure(figsize=(8, 6))
@@ -517,7 +531,8 @@ def main():
     # Data structure: data_metrics[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
         "recall_rate": [],
-        "effective_sample_size": []
+        "effective_sample_size": [],
+        "success": None
     }))))
 
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
@@ -536,7 +551,9 @@ def main():
                 
                 file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
-                #print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]}")
+                data_metrics[scenario][algo][particles][run]["success"] = Success (data_metrics, scenario, algo, particles, run)
+                print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]['recall_rate'][-1]}")
+                print(f"[DEBUG] Success of {scenario}, {algo}, {particles}, {run} : {data_metrics[scenario][algo][particles][run]['success']}")
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
             algo = extract_algorithm(filename)
