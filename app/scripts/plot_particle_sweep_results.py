@@ -606,8 +606,8 @@ def main():
                 file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
                 data_metrics[scenario][algo][particles][run]["success"] = Success (data_metrics, scenario, algo, particles, run)
-                print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]['recall_rate'][-1]}")
-                print(f"[DEBUG] Success of {scenario}, {algo}, {particles}, {run} : {data_metrics[scenario][algo][particles][run]['success']}")
+                #print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]['recall_rate'][-1]}")
+                #print(f"[DEBUG] Success of {scenario}, {algo}, {particles}, {run} : {data_metrics[scenario][algo][particles][run]['success']}")
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
             algo = extract_algorithm(filename)
@@ -698,7 +698,7 @@ def main():
         # --- Plot quantile-quantile for best run only
         plot_QQ (scenario, best_per_algo, plots_dir)
 
-        plot_rr_ite (scenario, plots_dir, best_info, data_metrics, styles)
+        #plot_rr_ite (scenario, plots_dir, best_info, data_metrics, styles)
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
