@@ -676,6 +676,8 @@ def main():
         yaw_std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std_yaw.png")
         plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
 
+        plot_sr_vs_particles (scenario, data_metrics, plots_dir, styles)
+
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
         best_per_algo, best_info = unpack_best_per_algo(summary_path, trajectories, scenario)
@@ -696,9 +698,11 @@ def main():
         # --- Plot quantile-quantile for best run only
         plot_QQ (scenario, best_per_algo, plots_dir)
 
+        plot_rr_ite (scenario, plots_dir, best_info, data_metrics, styles)
+
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
-        plot_sr_vs_particles (scenario, data_metrics, plots_dir, styles)
+        
 
         
     generate_html_report(data, plots_dir, True)
