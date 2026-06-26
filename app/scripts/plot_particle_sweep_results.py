@@ -119,8 +119,8 @@ def Recall_Rate (filepath) :
 # Necessity: 
 # Produce: True if the run is successful (to be determined in this algorithms,
 #           here a simple RR comparison) else False
-def Success (data_metrics, scenario, algo, particles, run) :
-    success = data_metrics[scenario][algo][particles][run]['recall_rate'][-1] in ("T1", "T2", "T3")
+def Success (data, scenario, algo, particles, run) :
+    success = data[scenario][algo][particles][run][-1] in ("T1", "T2", "T3")
     return success
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
@@ -605,7 +605,7 @@ def main():
                 
                 file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
-                data_metrics[scenario][algo][particles][run]["success"] = Success (data_metrics, scenario, algo, particles, run)
+                #data_metrics[scenario][algo][particles][run]["success"] = Success (data_metrics, scenario, algo, particles, run)
                 #print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]['recall_rate'][-1]}")
                 #print(f"[DEBUG] Success of {scenario}, {algo}, {particles}, {run} : {data_metrics[scenario][algo][particles][run]['success']}")
 
