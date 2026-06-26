@@ -622,7 +622,6 @@ def main():
             styles
         )
 
-        # --- Plot quantile-quantile for best run only
         plot_QQ (scenario, best_per_algo, plots_dir)
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
