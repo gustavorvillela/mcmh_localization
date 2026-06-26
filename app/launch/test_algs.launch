@@ -3,19 +3,27 @@
   <arg name="bag_file" default="$(env BAG_FILE)"/>
   <arg name="mode" default="MCL"/>
   <arg name="robot_name" default="turtlebot3_waffle"/>
+  <arg name="param_file" default="$(find mcmh_localization)/params/amhmcl.yaml"/>
+  <arg name="results_dir" default="$(find mcmh_localization)/results"/>
+  <arg name="init_particles" default=""/>
+  <arg name="min_particles" default=""/>
+  <arg name="max_particles" default=""/>
 
   <!-- Define result filename (without extension) -->
   <arg name="result_name" default=""/>
 
   <!-- Load general parameters -->
-  <rosparam file="$(find mcmh_localization)/params/amhmcl.yaml" command="load" />
+  <rosparam file="$(arg param_file)" command="load" />
+  <param if="$(eval arg('init_particles') != '')" name="init_particles" value="$(arg init_particles)" type="int"/>
+  <param if="$(eval arg('min_particles') != '')" name="min_particles" value="$(arg min_particles)" type="int"/>
+  <param if="$(eval arg('max_particles') != '')" name="max_particles" value="$(arg max_particles)" type="int"/>
 
   <!-- Extension for result name -->
   <arg name="name_ext" default=""/>
 
   <!-- Evaluation of estimate vs ground truth -->
   <node name="evaluate_localization" pkg="mcmh_localization" type="evaluate_localization.py" output="screen">
-    <param name="result_name" value="$(find mcmh_localization)/results/$(arg name_ext)$(arg result_name)"/>
+    <param name="result_name" value="$(arg results_dir)/$(arg name_ext)$(arg result_name)"/>
     <param name="est_topic" value="/mcmh_estimated_pose"/>
     <param name="gt_topic" value="/gazebo/model_states"/>
     <param name="robot_name" value="$(arg robot_name)"/>

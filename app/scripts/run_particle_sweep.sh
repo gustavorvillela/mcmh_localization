@@ -7,25 +7,37 @@
 
 MODES=("MCL" "MHMCL" "3MCL")  # Can adjust as desired
 PARTICLE_COUNTS=(250 500 1000 2000 4000)  # particle counts to test
+SCENARIOS=("C" "M" "A")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
+PARAMS_DIR="$(rospack find mcmh_localization)/params"
 REPEATS=30   # number of repeats per configuration
-MODEL= "turtlebot3_$TURTLEBOT3_MODEL"  # TurtleBot3 model (waffle or burger)
+MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
 
 # Remove only generated result files (safe filter)
 find "$RESULTS_DIR" -type f \( \
     -name "*.txt" -o \
-    -name "*.html" \
+    -name "*.html" -o \
+    -name "*.png" \
 \) -delete
 
-PLOTS_DIR="$RESULTS_DIR/plots"
-mkdir -p "$PLOTS_DIR"
+scenario_param_file() {
+    case "$1" in
+        C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
+        M) echo "$PARAMS_DIR/amhmcl_medium.yaml" ;;
+        A) echo "$PARAMS_DIR/amhmcl_aggressive.yaml" ;;
+        *)
+            echo "Error: unknown scenario '$1'. Use C, M, or A." >&2
+            exit 1
+            ;;
+    esac
+}
 
-echo "Cleaning plot images..."
-
-find "$PLOTS_DIR" -type f -name "*.png" -delete
+for SCENARIO in "${SCENARIOS[@]}"; do
+    mkdir -p "$RESULTS_DIR/$SCENARIO/plots"
+done
 
 export ROS_MASTER_URI=http://localhost:11311
 export ROS_HOSTNAME=localhost
@@ -46,7 +58,7 @@ echo "roscore is ready!"
 # Determine source of bags
 if [ $# -eq 0 ]; then
     #BAGS=("$DEFAULT_BAG_DIR"/*.bag)
-    BAGS="$DEFAULT_BAG_DIR"/explore_bin.bag # Only selecting the map working for the run
+    BAGS=("$DEFAULT_BAG_DIR"/explore_bin.bag) # Only selecting the map working for the run
 else
     BAGS=()
     for ARG in "$@"; do
@@ -70,36 +82,50 @@ else
     fi
 fi
 
-# Main loop: for each bag, mode and particle count
-for BAG in "${BAGS[@]}"; do
-    BAG_NAME=$(basename "$BAG" .bag)
-    for MODE in "${MODES[@]}"; do
-        for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
-            for ((i=1; i<=REPEATS; i++)); do
-                echo "=== Running $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
-                export BAG_FILE="$BAG"
-                RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
+# Main loop: for each C/M/A scenario, bag, mode and particle count
+for SCENARIO in "${SCENARIOS[@]}"; do
+    PARAM_FILE="$(scenario_param_file "$SCENARIO")"
+    SCENARIO_RESULTS_DIR="$RESULTS_DIR/$SCENARIO"
 
-                rosparam set /init_particles "$PCOUNT"
-                rosparam set /max_particles $((PCOUNT * 2))
-                rosparam set /min_particles $((PCOUNT / 10))
-                roslaunch mcmh_localization test_algs.launch \
-                    mode:=$MODE \
-                    result_name:=$RESULT_NAME \
-                    robot_name:=$MODEL \
-                    &
+    if [ ! -f "$PARAM_FILE" ]; then
+        echo "Error: parameter file not found: $PARAM_FILE"
+        exit 1
+    fi
 
-                LAUNCH_PID=$!
-                ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
-                wait $LAUNCH_PID
-                kill $WATCHDOG_PID 2>/dev/null
+    echo "=== Scenario $SCENARIO | params: $PARAM_FILE | results: $SCENARIO_RESULTS_DIR ==="
 
-                if ps -p $LAUNCH_PID > /dev/null; then
-                    echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
-                    kill $LAUNCH_PID
-                fi
+    for BAG in "${BAGS[@]}"; do
+        BAG_NAME=$(basename "$BAG" .bag)
+        for MODE in "${MODES[@]}"; do
+            for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
+                for ((i=1; i<=REPEATS; i++)); do
+                    echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
+                    export BAG_FILE="$BAG"
+                    RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
 
-                sleep 5
+                    roslaunch mcmh_localization test_algs.launch \
+                        mode:=$MODE \
+                        result_name:=$RESULT_NAME \
+                        robot_name:=$MODEL \
+                        param_file:="$PARAM_FILE" \
+                        results_dir:="$SCENARIO_RESULTS_DIR" \
+                        init_particles:="$PCOUNT" \
+                        max_particles:="$((PCOUNT * 2))" \
+                        min_particles:="$((PCOUNT / 10))" \
+                        &
+
+                    LAUNCH_PID=$!
+                    ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
+                    wait "$LAUNCH_PID"
+                    kill "$WATCHDOG_PID" 2>/dev/null
+
+                    if ps -p "$LAUNCH_PID" > /dev/null; then
+                        echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
+                        kill "$LAUNCH_PID"
+                    fi
+
+                    sleep 5
+                done
             done
         done
     done

@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from collections import defaultdict
 
+GT_X_OFFSET = float(os.environ.get("MCMH_GT_X_OFFSET", "0.7"))
+
 def load_error_data(filepath):
     """Load temporal data and final RMSE from file"""
     times = []
@@ -15,12 +17,13 @@ def load_error_data(filepath):
             for line in f:
                 if line.startswith('time,error'):
                     continue
-                elif line.startswith('RMSE final:'):
+                elif line.startswith('RMSE final:') or line.startswith('RMSE position:'):
                     final_rmse = float(line.split(':')[1].strip())
                 elif ',' in line:
-                    time, error = line.strip().split(',')
-                    times.append(float(time))
-                    errors.append(float(error))
+                    parts = line.strip().split(',')
+                    if len(parts) >= 2:
+                        times.append(float(parts[0]))
+                        errors.append(float(parts[1]))
                     
         return np.array(times), np.array(errors), final_rmse
     except Exception as e:
@@ -46,12 +49,12 @@ def load_trajectory_data(filepath):
                     continue
                 elif ',' in line:
                     parts = line.strip().split(',')
-                    if len(parts) == 7:
+                    if len(parts) >= 7:
                         data['time'].append(float(parts[0]))
                         data['est_x'].append(float(parts[1]))
                         data['est_y'].append(float(parts[2]))
                         data['est_yaw'].append(float(parts[3]))
-                        data['gt_x'].append(float(parts[4]))
+                        data['gt_x'].append(float(parts[4]) + GT_X_OFFSET)
                         data['gt_y'].append(float(parts[5]))
                         data['gt_yaw'].append(float(parts[6]))
         
@@ -64,11 +67,31 @@ def load_trajectory_data(filepath):
         print(f"Error reading trajectory {filepath}: {str(e)}")
         return None
 
-def main():
-    results_dir = os.path.join(os.path.dirname(__file__), '../results')
+def discover_result_dirs(results_root):
+    result_dirs = []
+
+    for current_dir, dirnames, filenames in os.walk(results_root):
+        dirnames[:] = [d for d in dirnames if d != "plots"]
+        has_result_files = any(
+            filename.endswith(".txt")
+            and not filename.startswith("poses_")
+            and filename != "summary_results.txt"
+            and "p_run" not in filename
+            for filename in filenames
+        )
+        if has_result_files:
+            result_dirs.append(current_dir)
+
+    return sorted(set(result_dirs))
+
+
+def process_results_dir(results_dir, results_root):
     if not os.path.exists(results_dir):
         print(f"Folder {results_dir} not found.")
         return
+
+    relative_dir = os.path.relpath(results_dir, results_root)
+    report_label = "root" if relative_dir == "." else relative_dir
 
     # Estrutura para armazenar todos os dados
     all_data = defaultdict(dict)
@@ -78,6 +101,7 @@ def main():
         if (
             filename.endswith('.txt')
             and not filename.startswith('poses_')
+            and filename != 'summary_results.txt'
             and 'p_run' not in filename  # ← ignora arquivos do particle sweep
         ):
             parts = filename.replace('.txt','').split('_')
@@ -114,12 +138,13 @@ def main():
                 })
                 if final_rmse is not None:
                     all_data[test_name][algorithm]['rmses'].append(final_rmse)
-                print(f"Processed: {filename} | Points: {len(times)} | RMSE: {final_rmse:.4f}")
+                rmse_text = f"{final_rmse:.4f}" if final_rmse is not None else "N/A"
+                print(f"Processed: {report_label}/{filename} | Points: {len(times)} | RMSE: {rmse_text}")
         elif 'p_run' in filename:
             print(f"Ignored (particle sweep): {filename}")
 
     if not all_data:
-        print("No valid data found.")
+        print(f"No valid data found in {results_dir}.")
         return
 
     # Post-processing: compute mean, std and best run
@@ -235,6 +260,22 @@ def main():
 
     # Gera tabela resumo HTML
     generate_html_summary(all_data, results_dir)
+
+
+def main():
+    results_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../results'))
+    if not os.path.exists(results_root):
+        print(f"Folder {results_root} not found.")
+        return
+
+    result_dirs = discover_result_dirs(results_root)
+    if not result_dirs:
+        print("No valid data found.")
+        return
+
+    for results_dir in result_dirs:
+        print(f"\nProcessing RMSE plots in: {results_dir}")
+        process_results_dir(results_dir, results_root)
 
 def generate_html_summary(data, output_dir):
     """Generate HTML report with all results"""
