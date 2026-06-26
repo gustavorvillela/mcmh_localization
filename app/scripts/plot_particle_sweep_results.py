@@ -44,6 +44,9 @@ def extract_scenario(filename):
     # remove poses_ prefix if present
     name = name.replace("poses_", "")
 
+    # remove neff_ prefix if present
+    name = name.replace("neff_", "")
+
     # remove particle specification
     name = re.sub(r'_\d+p_', '_', name)
 
@@ -56,6 +59,16 @@ def extract_scenario(filename):
 
     return name.strip("_")
 
+# Action: Extract witch run procude the result from the file name
+# I/ filename: String
+# O/ run: String
+# Necessity: A filename where every data is separate by "_" and where the run number is the last one
+# Produce: A string run wi9tch only contain the number of the run
+def extract_run (filename) :
+    name = filename.replace(".txt", "")
+    parts = name.split('_')
+    run = parts[-1]
+    return run.replace('run', '')
 
 def extract_rmse(filepath):
     rmse_pos = None
@@ -122,7 +135,71 @@ def calculate_navigation_metrics(est, gt):
         ),
     }
 
+def extract_neff(filepath):
+    neff = []
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                if line[0].isdigit():
+                    neff.append(int(float(line)))
+    except Exception as e:
+        print(f"Error opening {filepath} in extract_neff: {e}")
+    return neff
+
+# Action: Calculate the Recall Rate at every step depending on the threshold
+# I/ filepath: String
+# O/ RR: List of "T1", "T2", "T3" or None
+# Necessity: A file where every line with raw data match the pattern time,error_pos,error_yaw
+# Produce: Per valid line: add a value in RR depending on the threshold:
+#               - T1 if under threshold 1
+#               - T2 if under threshold 2 and above 1
+#               - T3 if under threshold 3 and above 2
+#               - None if above threshold 3
+def Recall_Rate(filepath):
+    try:
+        with open(filepath, 'r') as f:
+            rr = []
+            for line in f:
+                line = line.strip()
+                if not line or not line[0].isdigit():
+                    continue
+
+                parts = line.split(",")
+                if len(parts) < 3:
+                    continue
+
+                _, error_pos_str, error_yaw_str = parts[:3]
+                error_pos = abs(float(error_pos_str))
+                error_yaw = abs(float(error_yaw_str))
+
+                if (
+                    error_pos < RECALL_THRESHOLDS["recall_t1"][0]
+                    and error_yaw < RECALL_THRESHOLDS["recall_t1"][1]
+                ):
+                    rr.append("T1")
+                elif (
+                    error_pos < RECALL_THRESHOLDS["recall_t2"][0]
+                    and error_yaw < RECALL_THRESHOLDS["recall_t2"][1]
+                ):
+                    rr.append("T2")
+                elif (
+                    error_pos < RECALL_THRESHOLDS["recall_t3"][0]
+                    and error_yaw < RECALL_THRESHOLDS["recall_t3"][1]
+                ):
+                    rr.append("T3")
+                else:
+                    rr.append(None)
+        return rr
+    except Exception as e:
+        print(f"Error opening {filepath}: {e}")
+        return []
+
+
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
+    styles = styles or {}
 
     plt.figure(figsize=(8, 6))
     path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
@@ -169,6 +246,7 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     print(f"Plot saved at: {plot_path}")
 
 def plot_sweep_metric(data, scenario, plot_path, metric, ylabel, title, styles=None, scale=1.0, ylim=None):
+    styles = styles or {}
     plt.figure(figsize=(8, 6))
     plt.title(f"{title} vs Number of Particles - {scenario}")
     plt.xlabel("Number of Particles")
@@ -209,6 +287,7 @@ def plot_sweep_metric(data, scenario, plot_path, metric, ylabel, title, styles=N
     print(f"Plot saved at: {plot_path}")
 
 def plot_recall_rates(data, scenario, plot_path, styles=None):
+    styles = styles or {}
     fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharey=True)
     recall_specs = [
         ("recall_t1", "T1: <0.25 m, <2 deg"),
@@ -320,6 +399,67 @@ def plot_QQ (scenario, best_per_algo, plots_dir) :
             
             i += 1
 
+# Action: Plot the effective sample size vs time diagram for the best run
+#           of each algo
+# I/ scenario: String
+# I/ best_info: Dicionnary of witch nb_of_particule and run 
+#               was the best for every algo
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           plots_dir a valid path,
+#           scenario a valid senario
+#           and best_info matching the output of unpack_best_per_algo
+# Produce: A plot of the ESS for the best run per algo then store it with name
+#           scenario_ess_best.png
+def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
+    if not best_info:
+        print(f"No best-run information available for ESS plot: {scenario}")
+        return
+
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    title = f"Effective Sample Size vs time - {scenario}"
+
+    plt.title(title)
+    plt.xlabel("Time (iteration)")
+    plt.ylabel("Effective Sample Size (number of particle)")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_ess_best.png")
+    plotted = False
+
+    for algo, (particles, run) in best_info.items():
+        ess = data_metrics[scenario][algo][particles][run].get("effective_sample_size", [])
+        if not ess:
+            print(f"Warning: No ESS data for {scenario} | {algo} | {particles}p | run {run}")
+            continue
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.plot(
+            ess,
+            label=style['label'],
+            color=style['color'],
+            linestyle=style['linestyle'],
+            marker=style['marker'],
+            linewidth=2
+        )
+        plotted = True
+
+    if not plotted:
+        plt.close()
+        print(f"No ESS plot generated for {scenario}: no ESS samples found.")
+        return
+
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"ESS plot saved at: {plot_path}")
 
 def calculate_yaw_rmse(est, gt):
     
@@ -379,9 +519,10 @@ def load_trajectory(filepath):
 
 def unpack_best_per_algo(summary_path, trajectories, current_scenario):
     best_runs = {}
+    best_info = {}
     if not os.path.exists(summary_path):
         print(f"Warning: {summary_path} not found.")
-        return {}
+        return {}, {}
 
     with open(summary_path, 'r') as f:
         for line in f:
@@ -402,11 +543,14 @@ def unpack_best_per_algo(summary_path, trajectories, current_scenario):
                 if algo not in best_runs or path_rmse < best_runs[algo][1]:
                     if fname in trajectories:
                         best_runs[algo] = (parts_count, path_rmse, trajectories[fname])
+                        run = extract_run(fname)
+                        best_info[algo] = (parts_count, run)
                     else:
                         print(f"Warning: Found {fname} in summary but no trajectory data loaded.")
-    return best_runs
+    return best_runs, best_info
 
 def plot_best_paths_all_algos(scenario, best_per_algo, best_path, ate_path, mh_rate_path, styles=None):
+    styles = styles or {}
 
     plt.figure(figsize=(8, 6))
 
@@ -626,39 +770,76 @@ def process_results_dir(results_dir, results_root):
     relative_dir = os.path.relpath(results_dir, results_root)
     report_label = "root" if relative_dir == "." else relative_dir
 
+    # Data structure:
+    # data_metrics[scenario][algorithm][particles][run] = {
+    #     "recall_rate": [...],
+    #     "effective_sample_size": [...]
+    # }
+    # This keeps per-run diagnostics such as ESS/Neff while `data` stores
+    # aggregated metrics used in plots and the HTML report.
+    data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
+        "recall_rate": [],
+        "effective_sample_size": []
+    }))))
+
     for filename in os.listdir(results_dir):
-        if filename.endswith(".txt") and not filename.startswith("poses_"):
-            if filename == "summary_results.txt":
-                continue
-            algo = extract_algorithm(filename)
-            particles = extract_particles(filename)
-            scenario = extract_scenario(filename)
-            if algo and particles:
-                rmse_pos, rmse_yaw = extract_rmse(os.path.join(results_dir, filename))
-                if (rmse_pos is not None) and (rmse_yaw is not None):
-                    data[scenario][algo][particles]["pos"].append(rmse_pos)
-                    data[scenario][algo][particles]["yaw"].append(np.degrees(rmse_yaw))
-                    print(f"{filename}: {report_label}/{scenario} | {algo} | {particles}p -> RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}")
+        if not filename.endswith(".txt"):
+            continue
 
-        elif filename.endswith(".txt") and filename.startswith("poses_"):
+        if filename == "summary_results.txt":
+            continue
+
+        file_path = os.path.join(results_dir, filename)
+
+        if filename.startswith("poses_"):
             algo = extract_algorithm(filename)
             particles = extract_particles(filename)
             scenario = extract_scenario(filename)
 
             if algo and particles:
-                path = os.path.join(results_dir, filename)
-                est, gt, mh = load_trajectory(path)
+                est, gt, mh = load_trajectory(file_path)
                 if est.size > 0:
                     clean_path = filename.replace("poses_", "")
                     trajectories[clean_path] = {
-                            "est": est,
-                            "gt": gt,
-                            "mh": mh
+                        "est": est,
+                        "gt": gt,
+                        "mh": mh
                     }
+
                     metrics = calculate_navigation_metrics(est, gt)
                     for metric, value in metrics.items():
-                        data[scenario][algo][particles][metric].append(value)
+                        if metric in data[scenario][algo][particles]:
+                            data[scenario][algo][particles][metric].append(value)
+
                     print(f"Loaded trajectory: {filename} | {report_label}/{scenario} | {algo} | {particles}p")
+
+        elif filename.startswith("neff_"):
+            algo = extract_algorithm(filename)
+            particles = extract_particles(filename)
+            scenario = extract_scenario(filename)
+            run = extract_run(filename)
+
+            if algo and particles:
+                data_metrics[scenario][algo][particles][run]["effective_sample_size"] = extract_neff(file_path)
+                print(f"Loaded ESS: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
+
+        else:
+            algo = extract_algorithm(filename)
+            particles = extract_particles(filename)
+            scenario = extract_scenario(filename)
+            run = extract_run(filename)
+
+            if algo and particles:
+                rmse_pos, rmse_yaw = extract_rmse(file_path)
+                if (rmse_pos is not None) and (rmse_yaw is not None):
+                    data[scenario][algo][particles]["pos"].append(rmse_pos)
+                    data[scenario][algo][particles]["yaw"].append(np.degrees(rmse_yaw))
+                    print(
+                        f"{filename}: {report_label}/{scenario} | {algo} | {particles}p "
+                        f"-> RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}"
+                    )
+
+                data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate(file_path)
 
     if not data:
         print(f"No valid data found in {results_dir}.")
@@ -737,7 +918,7 @@ def process_results_dir(results_dir, results_root):
 
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
-        best_per_algo = unpack_best_per_algo(summary_path, trajectories, scenario)
+        best_per_algo, best_info = unpack_best_per_algo(summary_path, trajectories, scenario)
 
         best_path = os.path.join(plots_dir, f"{scenario}_best_paths_all.png")
         ate_path = os.path.join(plots_dir, f"{scenario}_ate_all.png")
@@ -752,8 +933,9 @@ def process_results_dir(results_dir, results_root):
             styles
         )
 
-        # --- Plot quantile-quantile for best run only
         plot_QQ (scenario, best_per_algo, plots_dir)
+
+        plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
         
     generate_html_report(data, plots_dir, True, report_label)
