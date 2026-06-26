@@ -76,52 +76,52 @@ def extract_neff (filepath):
         print(f"Error opening {filepath} in extract_neff: {e}")
     return Neff
 
-# Action: Calculate the Recall Rate at every step depending on the threshold
-# I/ filepath: String
-# O/ RR: List of "T1", "T1", "T1" or None
-# Necessity: A file where every line with raw data match the pattern time,error_pos,error_yaw all float
-# Produce: Per valid line: add a value in RR depending on the threshold:
-#               - T1 if under threshold 1
-#               - T2 if under threshold 2 and above 1
-#               - T3 if under threshold 3 and above 2
-#               - None if above threshold 3
-def Recall_Rate (filepath) :
+# Action: Calculate the Recall Rate of a run depending on the threshold
+# I/ pos: Float
+# I/ yaw: Float
+# O/ RR: String "T1", "T1", "T1" or None
+# Necessity: pos a float and yaw a float in rad
+# Produce: return
+#           - T1 if under threshold 1
+#           - T2 if under threshold 2 and above 1
+#           - T3 if under threshold 3 and above 2
+#           - None if above threshold 3
+def Recall_Rate (err_pos, err_yaw) :
     threshold_1 = [0.25, 2*np.pi/180]
     threshold_2 = [0.5, 5*np.pi/180]
     threshold_3 = [5, 10*np.pi/180]
-    try:
-        with open(filepath, 'r') as f:
-            RR = []
-            for line in f:
-                if line[0].isdigit():
-                    time,error_pos_str,error_yaw_str = line.split(",")
-                    error_pos = abs(float(error_pos_str))
-                    error_yaw = abs(float(error_yaw_str))
-                    if error_pos < threshold_1[0] and error_yaw < threshold_1[1]:
-                        RR.append("T1")
-                    elif error_pos < threshold_2[0] and error_yaw < threshold_2[1]:
-                        RR.append("T2")
-                    elif error_pos < threshold_3[0] and error_yaw < threshold_3[1]:
-                        RR.append("T3")
-                    else:
-                        RR.append(None)
-        return RR
-    except Exception as e:
-        print(f"Error opening {filepath}: {e}")
+        
+    error_pos = abs(err_pos)
+    error_yaw = abs(err_yaw)
+    
+    if error_pos < threshold_1[0] and error_yaw < threshold_1[1]:
+        return "T1"
+    elif error_pos < threshold_2[0] and error_yaw < threshold_2[1]:
+        return "T2"
+    elif error_pos < threshold_3[0] and error_yaw < threshold_3[1]:
+        return "T3"
+    else:
+        return None
 
 # Action: Determine if a run is successful or not
-# I/ scenario: String witch scenario
-# I/ algo: String what algo have been used
-# I/ particules: String how much particules
-# I/ run: String the number of the run
-# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ filepath: String
 # O/ success: Bool
 # Necessity: 
 # Produce: True if the run is successful (to be determined in this algorithms,
 #           here a simple RR comparison) else False
-def Success (data, scenario, algo, particles, run) :
-    success = data[scenario][algo][particles][run][-1] in ("T1", "T2", "T3")
-    return success
+def Success (filepath) :
+    try:
+        #success = False
+        with open(filepath, 'r') as f:
+            for line in f:
+                if line[0].isdigit() :
+                    time,err_pos,err_yaw = line.split(",")
+                    e_pos,e_yaw = float(err_pos), float(err_yaw)
+        success = Recall_Rate(e_pos, e_yaw) in ("T1", "T2", "T3")
+        return success
+    except Exception as e:
+        print(f"Error opening {filepath} in Success: {e}")
+    
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
@@ -584,9 +584,9 @@ def main():
 
     # Data structure: data_metrics[scenario][algorithm][particles][run] = {"rr": [...], "ess": [...]}
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
-        "recall_rate": [],
+        "recall_rate": None,
         "effective_sample_size": [],
-        "success": None
+        "success": False
     }))))
 
     # Build data structure: data[scenario][algorithm][particles] = {"pos": [...], "yaw": [...]}
@@ -603,11 +603,10 @@ def main():
                     data[scenario][algo][particles]["yaw"].append(np.degrees(rmse_yaw))
                     print(f"{filename}: {scenario} | {algo} | {particles}p → RMSE Position={rmse_pos:.4f}, RMSE Yaw={rmse_yaw:.4f}")
                 
-                file_path = os.path.join(os.path.dirname(__file__), '../results', filename)
-                data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (file_path)
-                #data_metrics[scenario][algo][particles][run]["success"] = Success (data_metrics, scenario, algo, particles, run)
-                #print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]['recall_rate'][-1]}")
-                #print(f"[DEBUG] Success of {scenario}, {algo}, {particles}, {run} : {data_metrics[scenario][algo][particles][run]['success']}")
+                    data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate (rmse_pos, rmse_yaw)
+                    #print(f"[DEBUG] Recall_Rate: {scenario}, {algo}, {particles}, {run} = {data_metrics[scenario][algo][particles][run]['recall_rate']}")
+                    data_metrics[scenario][algo][particles][run]["success"] = Success (os.path.join(results_dir, filename))
+                    #print(f"[DEBUG] Success of {scenario}, {algo}, {particles}, {run} : {data_metrics[scenario][algo][particles][run]['success']}")
 
         elif filename.endswith(".txt") and filename.startswith("poses_"):
             algo = extract_algorithm(filename)
