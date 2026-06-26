@@ -8,13 +8,31 @@
 MODES=("MCL" "MHMCL" "MHAMCL" "AMCL" "AMHMCL" "AMHAMCL")
 #MODES=("MCL" "MHMCL" "AMHMCL")
 #MODES=("AMCL" "MHAMCL" "AMHAMCL")
+SCENARIOS=("C" "M" "A")
 
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
+PARAMS_DIR="$(rospack find mcmh_localization)/params"
 REPEATS=10   # number of repeats per scenario
 mkdir -p "$RESULTS_DIR"
 
-echo -e "\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
+scenario_param_file() {
+    case "$1" in
+        C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
+        M) echo "$PARAMS_DIR/amhmcl_medium.yaml" ;;
+        A) echo "$PARAMS_DIR/amhmcl_aggressive.yaml" ;;
+        *)
+            echo "Error: unknown scenario '$1'. Use C, M, or A." >&2
+            exit 1
+            ;;
+    esac
+}
+
+for SCENARIO in "${SCENARIOS[@]}"; do
+    mkdir -p "$RESULTS_DIR/$SCENARIO/plots"
+done
+
+echo -e "\nScenarios: (${SCENARIOS[*]})\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
 
 # Determine source of bags
 if [ $# -eq 0 ]; then
@@ -47,31 +65,46 @@ else
 fi
 
 
-for BAG in "${BAGS[@]}"; do
-    BAG_NAME=$(basename "$BAG" .bag)
-    for MODE in "${MODES[@]}"; do
-        for ((i=1; i<=REPEATS; i++)); do
-            echo -e "\n\n=== Running $MODE with $BAG (run $i/$REPEATS) ===\n\n"
-            export BAG_FILE="$BAG"
-            RESULT_NAME="${BAG_NAME}_${MODE}_run${i}"
+for SCENARIO in "${SCENARIOS[@]}"; do
+    PARAM_FILE="$(scenario_param_file "$SCENARIO")"
+    SCENARIO_RESULTS_DIR="$RESULTS_DIR/$SCENARIO"
 
-            roslaunch mcmh_localization test_algs.launch mode:=$MODE result_name:=$RESULT_NAME &
-            LAUNCH_PID=$!
+    if [ ! -f "$PARAM_FILE" ]; then
+        echo "Error: parameter file not found: $PARAM_FILE"
+        exit 1
+    fi
 
-            ( sleep 100 && kill $LAUNCH_PID ) & WATCHDOG_PID=$!
-            wait $LAUNCH_PID
-            rosnode kill -a
-            sleep 2
-            kill $WATCHDOG_PID 2>/dev/null
+    for BAG in "${BAGS[@]}"; do
+        BAG_NAME=$(basename "$BAG" .bag)
+        for MODE in "${MODES[@]}"; do
+            for ((i=1; i<=REPEATS; i++)); do
+                echo -e "\n\n=== Running scenario $SCENARIO | $MODE with $BAG (run $i/$REPEATS) ===\n\n"
+                export BAG_FILE="$BAG"
+                RESULT_NAME="${BAG_NAME}_${MODE}_run${i}"
 
-            if ps -p $LAUNCH_PID > /dev/null; then
-                echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
+                roslaunch mcmh_localization test_algs.launch \
+                    mode:=$MODE \
+                    result_name:=$RESULT_NAME \
+                    param_file:="$PARAM_FILE" \
+                    results_dir:="$SCENARIO_RESULTS_DIR" \
+                    &
+                LAUNCH_PID=$!
+
+                ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
+                wait "$LAUNCH_PID"
                 rosnode kill -a
                 sleep 2
-                kill $LAUNCH_PID
-            fi
+                kill "$WATCHDOG_PID" 2>/dev/null
 
-            sleep 5
+                if ps -p "$LAUNCH_PID" > /dev/null; then
+                    echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
+                    rosnode kill -a
+                    sleep 2
+                    kill "$LAUNCH_PID"
+                fi
+
+                sleep 5
+            done
         done
     done
 done

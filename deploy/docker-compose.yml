@@ -8,12 +8,10 @@ services:
 
     network_mode: host
 
-    gpus: all
-
     volumes:
       - ..:/root/catkin_ws/src/mcmh_localization
       - /tmp/.X11-unix:/root/.X11-unix:rw
-      - /home/gustavo.villela/.Xauthority:/root/.Xauthority
+      - ${HOME}/.Xauthority:/root/.Xauthority
       - ~/.gazebo/gui.ini:/root/.gazebo/gui.ini:ro
       - ~/.gazebo/models:/root/.gazebo/models:rw
       - /opt/ros/noetic/share/turtlebot3_description:/opt/ros/noetic/share/turtlebot3_description:ro
