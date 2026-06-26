@@ -149,19 +149,45 @@ def extract_neff(filepath):
         print(f"Error opening {filepath} in extract_neff: {e}")
     return neff
 
-# Action: Calculate the Recall Rate at every step depending on the threshold
+# Action: Classify one position/yaw error sample according to the recall thresholds.
+# I/ err_pos: Float position error in meters
+# I/ err_yaw: Float yaw error in radians
+# O/ String "T1", "T2", "T3" or None
+# Produce:
+#   - T1 if under threshold 1
+#   - T2 if under threshold 2 and above/equal threshold 1
+#   - T3 if under threshold 3 and above/equal threshold 2
+#   - None if above threshold 3
+def classify_recall(err_pos, err_yaw):
+    error_pos = abs(float(err_pos))
+    error_yaw = abs(float(err_yaw))
+
+    if (
+        error_pos < RECALL_THRESHOLDS["recall_t1"][0]
+        and error_yaw < RECALL_THRESHOLDS["recall_t1"][1]
+    ):
+        return "T1"
+    if (
+        error_pos < RECALL_THRESHOLDS["recall_t2"][0]
+        and error_yaw < RECALL_THRESHOLDS["recall_t2"][1]
+    ):
+        return "T2"
+    if (
+        error_pos < RECALL_THRESHOLDS["recall_t3"][0]
+        and error_yaw < RECALL_THRESHOLDS["recall_t3"][1]
+    ):
+        return "T3"
+    return None
+
+# Action: Calculate the Recall Rate class at every step depending on the threshold.
 # I/ filepath: String
 # O/ RR: List of "T1", "T2", "T3" or None
-# Necessity: A file where every line with raw data match the pattern time,error_pos,error_yaw
-# Produce: Per valid line: add a value in RR depending on the threshold:
-#               - T1 if under threshold 1
-#               - T2 if under threshold 2 and above 1
-#               - T3 if under threshold 3 and above 2
-#               - None if above threshold 3
+# Necessity: A file where every raw-data line follows time,error_pos,error_yaw.
+# Produce: one threshold class per valid line.
 def Recall_Rate(filepath):
+    rr = []
     try:
         with open(filepath, 'r') as f:
-            rr = []
             for line in f:
                 line = line.strip()
                 if not line or not line[0].isdigit():
@@ -172,30 +198,21 @@ def Recall_Rate(filepath):
                     continue
 
                 _, error_pos_str, error_yaw_str = parts[:3]
-                error_pos = abs(float(error_pos_str))
-                error_yaw = abs(float(error_yaw_str))
-
-                if (
-                    error_pos < RECALL_THRESHOLDS["recall_t1"][0]
-                    and error_yaw < RECALL_THRESHOLDS["recall_t1"][1]
-                ):
-                    rr.append("T1")
-                elif (
-                    error_pos < RECALL_THRESHOLDS["recall_t2"][0]
-                    and error_yaw < RECALL_THRESHOLDS["recall_t2"][1]
-                ):
-                    rr.append("T2")
-                elif (
-                    error_pos < RECALL_THRESHOLDS["recall_t3"][0]
-                    and error_yaw < RECALL_THRESHOLDS["recall_t3"][1]
-                ):
-                    rr.append("T3")
-                else:
-                    rr.append(None)
-        return rr
+                rr.append(classify_recall(float(error_pos_str), float(error_yaw_str)))
     except Exception as e:
-        print(f"Error opening {filepath}: {e}")
-        return []
+        print(f"Error opening {filepath} in Recall_Rate: {e}")
+    return rr
+
+# Action: Determine if a run is successful based on the final valid error sample.
+# I/ filepath: String
+# O/ success: bool or None
+# Produce: True when the final valid sample is inside T1/T2/T3, False when it is
+#          outside T3, and None when no valid raw error sample exists.
+def Success(filepath):
+    rr = Recall_Rate(filepath)
+    if not rr:
+        return None
+    return rr[-1] in ("T1", "T2", "T3")
 
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
@@ -460,6 +477,78 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"ESS plot saved at: {plot_path}")
+
+# Action: Plot the  success rate of algo for particule
+# I/ scenario: String
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           plots_dir a valid path,
+#           scenario a valid senario
+# Produce: A plot of the SR for all algos and number of particules then store
+#           it with name scenario_sr.png
+def plot_sr_vs_particles(scenario, data_metrics, plots_dir, styles=None):
+    styles = styles or {}
+
+    plt.figure(figsize=(8, 6))
+
+    title = f"File-based Success Rate vs Number of Particles - {scenario}"
+
+    plt.title(title)
+    plt.xlabel("Number of Particles")
+    plt.ylabel("Success Rate (%)")
+    plt.ylim(0, 100)
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_sr.png")
+    plotted = False
+
+    for algo, particle_dict in data_metrics[scenario].items():
+        particles = []
+        success_rates = []
+
+        for particle_count in sorted(particle_dict.keys()):
+            run_dict = particle_dict[particle_count]
+            successes = [
+                run_data.get("success")
+                for run_data in run_dict.values()
+                if run_data.get("success") is not None
+            ]
+
+            if not successes:
+                continue
+
+            particles.append(particle_count)
+            success_rates.append(float(np.mean(successes)) * 100.0)
+
+        if not particles:
+            continue
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.plot(
+            particles,
+            success_rates,
+            label=style['label'],
+            color=style['color'],
+            linestyle=style['linestyle'],
+            marker=style['marker'],
+            linewidth=2
+        )
+        plotted = True
+
+    if not plotted:
+        plt.close()
+        print(f"No file-based SR plot generated for {scenario}: no success samples found.")
+        return
+
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"File-based SR plot saved at: {plot_path}")
 
 def calculate_yaw_rmse(est, gt):
     
@@ -778,8 +867,9 @@ def process_results_dir(results_dir, results_root):
     # This keeps per-run diagnostics such as ESS/Neff while `data` stores
     # aggregated metrics used in plots and the HTML report.
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
-        "recall_rate": [],
-        "effective_sample_size": []
+        "recall_rate": None,
+        "effective_sample_size": [],
+        "success": None
     }))))
 
     for filename in os.listdir(results_dir):
@@ -795,6 +885,7 @@ def process_results_dir(results_dir, results_root):
             algo = extract_algorithm(filename)
             particles = extract_particles(filename)
             scenario = extract_scenario(filename)
+            run = extract_run(filename)
 
             if algo and particles:
                 est, gt, mh = load_trajectory(file_path)
@@ -810,6 +901,9 @@ def process_results_dir(results_dir, results_root):
                     for metric, value in metrics.items():
                         if metric in data[scenario][algo][particles]:
                             data[scenario][algo][particles][metric].append(value)
+
+                    if "success" in metrics:
+                        data_metrics[scenario][algo][particles][run]["success"] = bool(metrics["success"])
 
                     print(f"Loaded trajectory: {filename} | {report_label}/{scenario} | {algo} | {particles}p")
 
@@ -840,6 +934,9 @@ def process_results_dir(results_dir, results_root):
                     )
 
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate(file_path)
+                file_success = Success(file_path)
+                if file_success is not None:
+                    data_metrics[scenario][algo][particles][run]["success"] = file_success
 
     if not data:
         print(f"No valid data found in {results_dir}.")
@@ -876,6 +973,8 @@ def process_results_dir(results_dir, results_root):
 
         yaw_std_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_std_yaw.png")
         plot_rmse(avg_data, scenario, yaw_std_plot_path, test="yaw", stat="std", styles=styles)
+
+        plot_sr_vs_particles(scenario, data_metrics, plots_dir, styles)
 
         success_plot_path = os.path.join(plots_dir, f"{scenario}_success_rate.png")
         plot_sweep_metric(
@@ -934,6 +1033,8 @@ def process_results_dir(results_dir, results_root):
         )
 
         plot_QQ (scenario, best_per_algo, plots_dir)
+
+        #plot_rr_ite (scenario, plots_dir, best_info, data_metrics, styles)
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
@@ -995,6 +1096,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
         mh_rate_plot = f"{scenario}_mh_rate_all.png"
         success_plot = f"{scenario}_success_rate.png"
+        file_success_plot = f"{scenario}_sr.png"
         spl_plot = f"{scenario}_spl.png"
         recall_plot = f"{scenario}_recall_rates.png"
         failure_plot = f"{scenario}_failure_rate.png"
@@ -1009,6 +1111,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{yaw_plot}">
             <img src="{prefix}{std_yaw_plot}">
             <img src="{prefix}{success_plot}">
+            <img src="{prefix}{file_success_plot}">
             <img src="{prefix}{spl_plot}">
             <img src="{prefix}{recall_plot}">
             <img src="{prefix}{failure_plot}">
