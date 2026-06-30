@@ -1096,7 +1096,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
         mh_rate_plot = f"{scenario}_mh_rate_all.png"
         success_plot = f"{scenario}_success_rate.png"
-        file_success_plot = f"{scenario}_sr.png"
+        #file_success_plot = f"{scenario}_sr.png"
         spl_plot = f"{scenario}_spl.png"
         recall_plot = f"{scenario}_recall_rates.png"
         failure_plot = f"{scenario}_failure_rate.png"
@@ -1111,7 +1111,6 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{yaw_plot}">
             <img src="{prefix}{std_yaw_plot}">
             <img src="{prefix}{success_plot}">
-            <img src="{prefix}{file_success_plot}">
             <img src="{prefix}{spl_plot}">
             <img src="{prefix}{recall_plot}">
             <img src="{prefix}{failure_plot}">
