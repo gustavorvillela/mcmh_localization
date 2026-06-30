@@ -99,7 +99,7 @@ def count_failure_events(pos_errors, yaw_abs):
 
     events = int(failure_mask[0])
     if len(failure_mask) > 1:
-        events += int(np.sum(failure_mask[1:] & ~failure_mask[:-1]))
+        events += int(np.sum(failure_mask[1:] & ~failure_mask[:-1])) # Don't understand
     return events
 
 def calculate_navigation_metrics(est, gt):
@@ -216,7 +216,7 @@ def Success(filepath):
 
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
-    styles = styles or {}
+    styles = styles or {} # What is it doing
 
     plt.figure(figsize=(8, 6))
     path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
@@ -818,7 +818,7 @@ def safe_mean(values):
     if not values:
         return None
     array = np.asarray(values, dtype=float)
-    array = array[~np.isnan(array)]
+    array = array[~np.isnan(array)] # What is it doing
     if array.size == 0:
         return None
     return float(np.mean(array))
