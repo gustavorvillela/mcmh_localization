@@ -472,9 +472,9 @@ class AMCMHLocalizer:
         # rospy.loginfo("Publishing particles")
         #self.weights = self.calculate_weights(self.particles)
         self.weights = self.meta_weights.copy()  # Update self.weights to the new weights for visualization and any other use in the next iteration, so that it reflects the current scan update.
-        self.publish_estimate()
+        self.publish_estimate(msg.header.stamp)
         t = time.time()
-        self.publish_particles()
+        self.publish_particles(msg.header.stamp)
 
     def update_scans(self,scan):
 
@@ -887,7 +887,7 @@ class AMCMHLocalizer:
     # Publish
     #======================================================================
 
-    def publish_particles(self):
+    def publish_particles(self, stamp=None):
 
         if self.headless:
             return
@@ -907,7 +907,7 @@ class AMCMHLocalizer:
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
         #print(f"[DEBUG] Publishing {len(self.particles)} particles with normalized weights (min: {norm_weights.min():.4f}, max: {norm_weights.max():.4f})")
         marker_id =0
-        now = rospy.Time.now()
+        now = stamp if stamp is not None and stamp != rospy.Time(0) else rospy.Time.now()
         for p, w in zip(self.particles, norm_weights):
 
                 
@@ -940,7 +940,7 @@ class AMCMHLocalizer:
             self.marker_pub.publish(marker_array)
 
     
-    def publish_estimate(self):
+    def publish_estimate(self, stamp=None):
 
 
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
@@ -956,7 +956,7 @@ class AMCMHLocalizer:
             return
         cov = np.cov(diffs.T, aweights=self.weights)
         pose = PoseWithCovarianceStamped()
-        pose.header.stamp = rospy.Time.now()
+        pose.header.stamp = stamp if stamp is not None and stamp != rospy.Time(0) else rospy.Time.now()
         pose.header.frame_id = "map"
         pose.pose.pose.position.x = mean_pose[0]
         pose.pose.pose.position.y = mean_pose[1]
@@ -1034,8 +1034,9 @@ class AMCMHLocalizer:
 
         t = time.time()
         self.acc_rate.publish(Float64(acc_rate))
-        self.publish_particles()
-        self.publish_estimate()
+        stamp = scan_msg.header.stamp if scan_msg.header.stamp != rospy.Time(0) else odom_msg.header.stamp
+        self.publish_particles(stamp)
+        self.publish_estimate(stamp)
         #print(f"[DEBUG] Publishing took {time.time() - t:.4f} seconds")
 
 if __name__ == '__main__':

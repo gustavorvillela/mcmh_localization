@@ -130,9 +130,9 @@ class MCMHLocalizer:
 
         self.update_scans(msg)
         self.update_weights()
-        self.publish_estimate()
+        self.publish_estimate(msg.header.stamp)
         self.resample_simple()
-        self.publish_particles()
+        self.publish_particles(msg.header.stamp)
 
 
     def update_scans(self,scan):
@@ -223,10 +223,11 @@ class MCMHLocalizer:
     #======================================================================
     
 
-    def publish_particles(self):
+    def publish_particles(self, stamp=None):
         marker_array = MarkerArray()
         weights = self.weights_viz
         norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+        marker_stamp = stamp if stamp is not None and stamp != rospy.Time(0) else rospy.Time.now()
 
         cos_half_theta = np.cos(self.particles[:,2] / 2.0)
         sin_half_theta = np.sin(self.particles[:,2] / 2.0)
@@ -237,6 +238,7 @@ class MCMHLocalizer:
                 
             marker = Marker()
             marker.header.frame_id = "map"
+            marker.header.stamp = marker_stamp
             marker.id = i
             marker.type = Marker.ARROW
             marker.action = Marker.ADD
@@ -259,7 +261,7 @@ class MCMHLocalizer:
 
 
     
-    def publish_estimate(self):
+    def publish_estimate(self, stamp=None):
 
         mean_pose = np.average(self.particles, axis=0,weights=self.weights)
         diffs = self.particles.copy()
@@ -268,7 +270,7 @@ class MCMHLocalizer:
         diffs[:, 2] = normalize_angle_array(self.particles[:, 2], mean_pose[2])
         cov = np.cov(diffs.T, aweights=self.weights)
         pose = PoseWithCovarianceStamped()
-        pose.header.stamp = rospy.Time.now()
+        pose.header.stamp = stamp if stamp is not None and stamp != rospy.Time(0) else rospy.Time.now()
         pose.header.frame_id = "map"
         pose.pose.pose.position.x = mean_pose[0]
         pose.pose.pose.position.y = mean_pose[1]
