@@ -293,7 +293,7 @@ def plot_sweep_metric(data, scenario, plot_path, metric, ylabel, title, styles=N
 
 def plot_recall_rates(data, scenario, plot_path, styles=None):
     styles = styles or {}
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(24, 6), sharey=True)
     recall_specs = [
         ("recall_t1", "T1: <0.25 m, <2 deg"),
         ("recall_t2", "T2: <0.50 m, <5 deg"),
@@ -436,8 +436,11 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
     plot_path = os.path.join(plots_dir, f"{scenario}_ess_best.png")
     plotted = False
 
+    Ns = []
+
     for algo, (particles, run) in best_info.items():
         ess = data_metrics[scenario][algo][particles][run].get("effective_sample_size", [])
+        ess = [val/particles for val in ess]
         if not ess:
             print(f"Warning: No ESS data for {scenario} | {algo} | {particles}p | run {run}")
             continue
@@ -452,16 +455,16 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
             #marker=style['marker'],
             linewidth=2
         )
-        N = len(ess)
+        Ns.append(len(ess))
 
-        plt.plot(
-            N*[particles//2],
-            label=style['label']+f" limit to resample at {particles//2}",
-            color=style['color'],
-            linestyle='-',
-            linewidth=0.5
-        )
         plotted = True
+
+    plt.plot(
+        [0.5]*max(Ns),
+        label="lower limit to resample",
+        linestyle='-',
+        linewidth=0.5
+    )
 
     if not plotted:
         plt.close()
@@ -1033,11 +1036,13 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{std_yaw_plot}">
             <img src="{prefix}{success_plot}">
             <img src="{prefix}{spl_plot}">
-            <img src="{prefix}{recall_plot}">
             <img src="{prefix}{failure_plot}">
             <img src="{prefix}{mh_rate_plot}">
             <img src="{prefix}{best_path_plot}">
             <img src="{prefix}{best_ess_plot}">
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:60px;">
+            <img src="{prefix}{recall_plot}">
         </div>
         """
 
