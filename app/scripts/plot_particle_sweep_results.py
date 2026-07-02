@@ -467,8 +467,8 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
         N = len(ess)
 
         plt.plot(
-            N*[particles/2],
-            label=style['label']+f" min threshold ({particles/2})",
+            N*[particles//2],
+            label=style['label']+f" limit to resample at {particles//2}",
             color=style['color'],
             linestyle='-',
             linewidth=0.5
