@@ -1036,13 +1036,11 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{std_yaw_plot}">
             <img src="{prefix}{success_plot}">
             <img src="{prefix}{spl_plot}">
+            <img src="{prefix}{recall_plot}">
             <img src="{prefix}{failure_plot}">
             <img src="{prefix}{mh_rate_plot}">
             <img src="{prefix}{best_path_plot}">
             <img src="{prefix}{best_ess_plot}">
-        </div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:60px;">
-            <img src="{prefix}{recall_plot}">
         </div>
         """
 
