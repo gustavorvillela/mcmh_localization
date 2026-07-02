@@ -15,7 +15,7 @@ RECALL_THRESHOLDS = {
     "recall_t3": (5.00, np.deg2rad(10.0)),
 }
 FAILURE_POS_THRESHOLD = 5.0
-FAILURE_YAW_THRESHOLD = np.deg2rad(10.0)
+FAILURE_YAW_THRESHOLD = np.deg2rad(45.0)
 METRIC_KEYS = [
     "pos",
     "yaw",
@@ -202,18 +202,6 @@ def Recall_Rate(filepath):
     except Exception as e:
         print(f"Error opening {filepath} in Recall_Rate: {e}")
     return rr
-
-# Action: Determine if a run is successful based on the final valid error sample.
-# I/ filepath: String
-# O/ success: bool or None
-# Produce: True when the final valid sample is inside T1/T2/T3, False when it is
-#          outside T3, and None when no valid raw error sample exists.
-def Success(filepath):
-    rr = Recall_Rate(filepath)
-    if not rr:
-        return None
-    return rr[-1] in ("T1", "T2", "T3")
-
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
     styles = styles or {} # What is it doing
@@ -461,7 +449,7 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
             label=style['label']+f" {particles}p",
             color=style['color'],
             linestyle=style['linestyle'],
-            marker=style['marker'],
+            #marker=style['marker'],
             linewidth=2
         )
         N = len(ess)
@@ -871,9 +859,9 @@ def process_results_dir(results_dir, results_root):
                     )
 
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate(file_path)
-                file_success = Success(file_path)
-                if file_success is not None:
-                    data_metrics[scenario][algo][particles][run]["success"] = file_success
+                #file_success = Success(file_path)
+                #if file_success is not None:
+                #    data_metrics[scenario][algo][particles][run]["success"] = file_success
 
     if not data:
         print(f"No valid data found in {results_dir}.")
