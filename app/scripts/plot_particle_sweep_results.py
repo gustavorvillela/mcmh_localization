@@ -458,11 +458,20 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
 
         plt.plot(
             ess,
-            label=style['label'],
+            label=style['label']+f" {particles}p",
             color=style['color'],
             linestyle=style['linestyle'],
             marker=style['marker'],
             linewidth=2
+        )
+        N = len(ess)
+
+        plt.plot(
+            N*[particles/2],
+            label=style['label']+f" min threshold ({particles/2})",
+            color=style['color'],
+            linestyle='-',
+            linewidth=0.5
         )
         plotted = True
 
@@ -1015,6 +1024,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         std_plot = f"{scenario}_particle_sweep_std.png"
         std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
 
+        best_ess_plot = f"{scenario}_ess_best.png"
         best_path_plot = f"{scenario}_best_paths_all.png"
         ate_curve_plot = f"{scenario}_ate_all.png"
         best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
@@ -1039,6 +1049,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{failure_plot}">
             <img src="{prefix}{mh_rate_plot}">
             <img src="{prefix}{best_path_plot}">
+            <img src="{prefix}{best_ess_plot}">
         </div>
         """
 
