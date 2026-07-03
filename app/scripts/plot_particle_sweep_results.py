@@ -291,20 +291,21 @@ def plot_sweep_metric(data, scenario, plot_path, metric, ylabel, title, styles=N
     plt.close()
     print(f"Plot saved at: {plot_path}")
 
-def plot_recall_rates(data, scenario, plot_path, styles=None):
+def plot_recall_rates(data, scenario, plots_dir, styles=None):
     styles = styles or {}
-    fig, axes = plt.subplots(1, 3, figsize=(24, 6), sharey=True)
     recall_specs = [
         ("recall_t1", "T1: <0.25 m, <2 deg"),
         ("recall_t2", "T2: <0.50 m, <5 deg"),
         ("recall_t3", "T3: <5.00 m, <10 deg"),
     ]
 
-    for ax, (metric, title) in zip(axes, recall_specs):
-        ax.set_title(title)
-        ax.set_xlabel("Number of Particles")
-        ax.set_ylim(0, 100)
-        ax.grid(True, linestyle='--', alpha=0.4)
+    for (metric, title) in recall_specs:
+        plt.figure(figsize=(8, 6))
+        plt.title(f"Recall Rate {title} vs Number of Particles - {scenario}")
+        plt.xlabel("Number of Particles")
+        plt.ylabel("Recall Rate (%)")
+        plt.ylim(0, 100)
+        plt.grid(True, linestyle='--', alpha=0.4)
 
         for algo, results in data.items():
             particles = []
@@ -321,7 +322,7 @@ def plot_recall_rates(data, scenario, plot_path, styles=None):
                 continue
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
-            ax.plot(
+            plt.plot(
                 particles,
                 stats,
                 label=style['label'],
@@ -331,16 +332,12 @@ def plot_recall_rates(data, scenario, plot_path, styles=None):
                 linewidth=2
             )
 
-    axes[0].set_ylabel("Recall Rate (%)")
-    handles, labels = axes[-1].get_legend_handles_labels()
-    if handles:
-        fig.legend(handles, labels, loc="lower center", ncol=max(1, min(len(labels), 6)))
-        fig.subplots_adjust(bottom=0.22)
-    fig.suptitle(f"Recall Rate vs Number of Particles - {scenario}")
-    fig.tight_layout()
-    fig.savefig(plot_path, dpi=200)
-    plt.close(fig)
-    print(f"Plot saved at: {plot_path}")
+        #title = title.lower().replace(" ","")
+        dir_name = f"{scenario}_recall_rates_{metric}.png"
+        recall_plot_path = os.path.join(plots_dir, dir_name)
+        plt.savefig(recall_plot_path, dpi=200)
+        plt.close()
+        print(f"Recall Rate plot saved at: {recall_plot_path}")
 
 # Action: Plot the quantile-quantile diagram for the best run of each algo
 # I/ scenario: String
@@ -927,8 +924,7 @@ def process_results_dir(results_dir, results_root):
             ylim=(0, 1.05)
         )
 
-        recall_plot_path = os.path.join(plots_dir, f"{scenario}_recall_rates.png")
-        plot_recall_rates(avg_data, scenario, recall_plot_path, styles=styles)
+        plot_recall_rates(avg_data, scenario, plots_dir, styles=styles)
 
         failure_plot_path = os.path.join(plots_dir, f"{scenario}_failure_rate.png")
         plot_sweep_metric(
@@ -1022,12 +1018,14 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         mh_rate_plot = f"{scenario}_mh_rate_all.png"
         success_plot = f"{scenario}_success_rate.png"
         spl_plot = f"{scenario}_spl.png"
-        recall_plot = f"{scenario}_recall_rates.png"
+        recall_plot_t1 = f"{scenario}_recall_rates_recall_t1.png"
+        recall_plot_t2 = f"{scenario}_recall_rates_recall_t2.png"
+        recall_plot_t3 = f"{scenario}_recall_rates_recall_t3.png"
         failure_plot = f"{scenario}_failure_rate.png"
         prefix = "" if same_dir else "plots/"
 
         html += f"""
-        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px">
             <img src="{prefix}{ate_curve_plot}">
             <img src="{prefix}{rmse_plot}">
             <img src="{prefix}{std_plot}">
@@ -1036,7 +1034,9 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{std_yaw_plot}">
             <img src="{prefix}{success_plot}">
             <img src="{prefix}{spl_plot}">
-            <img src="{prefix}{recall_plot}">
+            <img src="{prefix}{recall_plot_t1}">
+            <img src="{prefix}{recall_plot_t2}">
+            <img src="{prefix}{recall_plot_t3}">
             <img src="{prefix}{failure_plot}">
             <img src="{prefix}{mh_rate_plot}">
             <img src="{prefix}{best_path_plot}">
