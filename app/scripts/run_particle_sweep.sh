@@ -6,8 +6,8 @@
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
 MODES=("MCL" "MHMCL" "3MCL")  # Can adjust as desired
-PARTICLE_COUNTS=(250 500 1000 2000 4000)  # particle counts to test
-SCENARIOS=("C" "M" "A")  # C=Conservative, M=Medium, A=Aggressive
+PARTICLE_COUNTS=(100 300 500 750 1000)  # particle counts to test
+SCENARIOS=("C")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
