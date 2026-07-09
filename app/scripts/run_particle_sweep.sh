@@ -57,8 +57,7 @@ done
 echo "roscore is ready!"
 # Determine source of bags
 if [ $# -eq 0 ]; then
-    #BAGS=("$DEFAULT_BAG_DIR"/*.bag)
-    BAGS=("$DEFAULT_BAG_DIR"/explore_bin.bag) # Only selecting the map working for the run
+    BAGS=("$DEFAULT_BAG_DIR"/*.bag)
 else
     BAGS=()
     for ARG in "$@"; do
