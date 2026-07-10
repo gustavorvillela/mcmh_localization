@@ -359,47 +359,50 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
 # Produce: Per algo: a QQ plot per state variable dimension
 #           (x,y,yaw for example) of the best run then store it with name
 #           scenario_algo_qq_dimension.png
-def plot_QQ (scenario, best_per_algo, plots_dir) :
+def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
     if not best_per_algo:
         return
+    styles = styles or {}
+    dict_intern = ["x", "y", "yaw"]
 
-    plt.figure(figsize=(8, 6))
-    dict_intern = {0:"x",1:"y",2:"yaw"}
+    i = 0
+    for varr in dict_intern :
+
+        plt.figure(figsize=(8, 6))
+        title = f"QQ plot of {varr} {particles}p - {scenario}"
+        plot_path = os.path.join(plots_dir, f"{scenario}_qq_{varr}.png")
 
     
-    for algo, (particles, rmse, best_run) in best_per_algo.items():
-    
-        est = best_run["est"]
-        gt = best_run["gt"]
-        mh = best_run.get("mh")
+        for algo, (particles, rmse, best_run) in best_per_algo.items():
+        
+            est = best_run["est"]
+            gt = best_run["gt"]
+            mh = best_run.get("mh")
 
-        x_gt, y_gt = gt[:, 0], gt[:, 1]
-        x_est, y_est = est[:, 0], est[:, 1]
-        yaw_gt = np.degrees(gt[:, 2])
-        yaw_est = np.degrees(est[:, 2])
+            gt_u = gt[:, i]
+            est_u  = est[:, i]
+            if i == 2:
+                gt_u = np.degrees(gt_u[:, 2])
+                est_u = np.degrees(est_u[:, 2])
 
-        i = 0
-        for est_ax, gt_ax in zip((x_est, y_est, yaw_est), (x_gt, y_gt, yaw_gt)) :
-            title = f"QQ plot of {dict_intern[i]} for {algo} {particles}p - {scenario}"
+            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-            plot_path = os.path.join(plots_dir, f"{scenario}_{algo}_qq_{dict_intern[i]}_{particles}p.png")
-            
-            sm.qqplot_2samples(gt_ax, est_ax,
-                line="45"
+            sm.qqplot_2samples(gt_u, est_u,
+                line="45",
+                label=style['label']+f" {particles}p",
             )
 
-            plt.title(title)
-            plt.xlabel("Ground true")
-            plt.ylabel("Estimated")
+        plt.title(title)
+        plt.xlabel("Ground true")
+        plt.ylabel("Estimated")
 
-            plt.grid(True, linestyle='--', alpha=0.4)
-            plt.axis("equal")
-            plt.tight_layout()
-            plt.savefig(plot_path, dpi=200)
-            plt.close()
-            print(f"QQ plot saved at: {plot_path}")
-            
-            i += 1
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.axis("equal")
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print(f"QQ plot saved at: {plot_path}")
+        i += 1
 
 # Action: Plot the effective sample size vs time diagram for the best run
 #           of each algo
@@ -954,7 +957,7 @@ def process_results_dir(results_dir, results_root):
             styles
         )
 
-        plot_QQ (scenario, best_per_algo, plots_dir)
+        plot_QQ (scenario, best_per_algo, plots_dir, styles)
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
@@ -1003,6 +1006,8 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     """
 
     for scenario, scenario_data in all_data.items():
+        #algo = scenario_data['algo']
+        #particles = algo['particles']
 
         html += f"<h2>Scenario: {scenario}</h2>"
 
@@ -1010,7 +1015,9 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         yaw_plot = f"{scenario}_particle_sweep_rmse_yaw.png"
         std_plot = f"{scenario}_particle_sweep_std.png"
         std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
-
+        best_qq_x = f"{scenario}_qq_x.png"
+        best_qq_y = f"{scenario}_qq_y.png"
+        best_qq_yaw = f"{scenario}_qq_yaw.png"
         best_ess_plot = f"{scenario}_ess_best.png"
         best_path_plot = f"{scenario}_best_paths_all.png"
         ate_curve_plot = f"{scenario}_ate_all.png"
@@ -1041,6 +1048,15 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img src="{prefix}{mh_rate_plot}">
             <img src="{prefix}{best_path_plot}">
             <img src="{prefix}{best_ess_plot}">
+            <img src="{prefix}{best_qq_x}">
+            <img src="{prefix}{best_qq_y}">
+            <img src="{prefix}{best_qq_yaw}">
+        </div>
+        """
+
+        html += f"""
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px">
+            <img src="{prefix}[.*qq.*]"
         </div>
         """
 
