@@ -1,37 +1,78 @@
-# Medium parameter profile (M)
-# Baseline profile, kept close to the current amhmcl.yaml tuning.
+#======================================
+# General parameters
+#=======================================
 
+# Define these parameters based on localization mode and initial conditions
+# Mode options:
+#   ."MCL"    - Monte Carlo Localization (MCL)
+#   ."AMCL"   - Adaptive Monte Carlo Localization (AMCL)
+#   ."MHMCL"  - Metropolis-Hastings Monte Carlo Localization (MHMCL)
+#   ."3MCL"   - Meta Metropolis-Hastings Monte Carlo Localization (3MCL)
+#
+# If you want an initial guess to ease convergence, set initialized to True and provide
+# the initial pose in the launch file or using a 2D Pose Estimate in RViz
+#
+# Choose the number of initial particles based on your environment size and
+# the expected initial uncertainty of the robot pose
+
+#localization_mode: "MHMCL"  
 initialized: False
 use_sim_time: True
-init_particles: 500
-min_particles: 100
-max_particles: 2000
-headless: False
+#init_particles: 500
+headless: False  # If True, the node will not publish visualization markers for particles (useful for performance in large environments)
 
-meta_lambda: 0.72
-random_steps: 50
 
-alpha1: 0.16
-alpha2: 0.175
-alpha3: 0.18
-alpha4: 0.05
+meta_lambda: 0.72  # Exponential recency weighting factor for Meta-MH 
+random_steps: 50  # Number of random walk steps per odometry update (tune based on your robot's motion characteristics)
 
-alpha5: 0.215
-alpha6: 0.215
-alpha7: 0.212
-alpha8: 0.212
+#=======================================
+# Motion model parameters
+#=======================================
 
-kld_epsilon: 0.01
-kld_z: 2.326
-kld_bin_size_xy: 0.005
-kld_bin_size_theta: 0.017
-kld_delta: 0.99
+# Tune these parameters based on your robot's motion characteristics
 
-alpha_slow: 0.0001
-alpha_fast: 0.01
+alpha1: 0.16  # rotation noise due to rotation   - 0.26
+alpha2: 0.175  # rotation noise due to translation - 0.075 
+alpha3: 0.18  # translation noise due to translation - 0.28
+alpha4: 0.05  # translation noise due to rotation - 0.075
 
-sigma_hit: 0.05
-z_hit: 0.90
-z_rand: 0.10
-max_range: 8.0
-step: 1
+# Additional noise parameters for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
+alpha5: 0.415  # additional noise for in-place rotation - 0.02
+alpha6: 0.215  # additional noise for in-place translation - 0.04
+alpha7: 0.412  # additional noise for small forward movement - 0.01
+alpha8: 0.412   # additional noise for small backward movement - 0.01
+
+#=======================================
+# KLD Resampling parameters
+#=======================================
+
+kld_epsilon: 0.5
+kld_z: 2.326  # 99% confidence interval
+kld_bin_size_xy: 0.2  # 8 cm
+kld_bin_size_theta: 0.17  # 22 angle in radians
+#kld_delta: 0.9
+#min_particles: 200
+#max_particles: 2500
+
+
+#=======================================
+# AMCL parameters
+#=======================================
+
+alpha_slow: 0.01 # slow learning rate
+alpha_fast: 0.4  # fast learning rate
+
+
+
+#=======================================
+# Sensor model parameters
+#=======================================
+
+# Tune these parameters based on your LiDAR characteristics and environment
+# or using a learn intrinsic parameters method
+
+sigma_hit: 0.05   # 0.05
+z_hit: 0.9     # 0.95
+z_rand: 0.1      # 0.05
+max_range: 8.0    # 8.0
+step: 5          #1
