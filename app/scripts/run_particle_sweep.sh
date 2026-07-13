@@ -28,10 +28,12 @@ scenario_param_file() {
         C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
         M) echo "$PARAMS_DIR/amhmcl_medium.yaml" ;;
         A) echo "$PARAMS_DIR/amhmcl_aggressive.yaml" ;;
-        *)
-            echo "Error: unknown scenario '$1'. Use C, M, or A." >&2
-            exit 1
-            ;;
+        *)  if test -f "$PARAMS_DIR/$1"; then
+                echo "$PARAMS_DIR/$1"
+            else
+                echo "Error: scenario '$1' is not on '$PARAMS_DIR'. Use C, M, A or a valid file." >&2
+                exit 1
+            fi ;;
     esac
 }
 
@@ -55,6 +57,9 @@ until rostopic list >/dev/null 2>&1; do
     sleep 1
 done
 echo "roscore is ready!"
+
+python3 app/scripts/warmup_numba.py
+
 # Determine source of bags
 if [ $# -eq 0 ]; then
     BAGS=("$DEFAULT_BAG_DIR"/*.bag)

@@ -13,7 +13,7 @@ SCENARIOS=("C" "M" "A")
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-REPEATS=10   # number of repeats per scenario
+REPEATS=30   # number of repeats per scenario
 mkdir -p "$RESULTS_DIR"
 
 scenario_param_file() {
@@ -21,10 +21,12 @@ scenario_param_file() {
         C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
         M) echo "$PARAMS_DIR/amhmcl_medium.yaml" ;;
         A) echo "$PARAMS_DIR/amhmcl_aggressive.yaml" ;;
-        *)
-            echo "Error: unknown scenario '$1'. Use C, M, or A." >&2
-            exit 1
-            ;;
+        *)  if test -f "$PARAMS_DIR/$1"; then
+                echo "$PARAMS_DIR/$1"
+            else
+                echo "Error: scenario '$1' is not on '$PARAMS_DIR'. Use C, M, A or a valid file." >&2
+                exit 1
+            fi ;;
     esac
 }
 
@@ -33,6 +35,8 @@ for SCENARIO in "${SCENARIOS[@]}"; do
 done
 
 echo -e "\nScenarios: (${SCENARIOS[*]})\nModes:  (${MODES[*]})\nResults dir: $RESULTS_DIR\nRepeats per mode: $REPEATS\n" 
+
+python3 app/scripts/warmup_numba.py
 
 # Determine source of bags
 if [ $# -eq 0 ]; then
