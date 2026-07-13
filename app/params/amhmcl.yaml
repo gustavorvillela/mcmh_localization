@@ -7,7 +7,7 @@
 #   ."MCL"    - Monte Carlo Localization (MCL)
 #   ."AMCL"   - Adaptive Monte Carlo Localization (AMCL)
 #   ."MHMCL"  - Metropolis-Hastings Monte Carlo Localization (MHMCL)
-#   ."AMHMCL" - Assymetric Metropolis-Hastings Monte Carlo Localization (AMHMCL)
+#   ."3MCL"   - Meta Metropolis-Hastings Monte Carlo Localization (3MCL)
 #
 # If you want an initial guess to ease convergence, set initialized to True and provide
 # the initial pose in the launch file or using a 2D Pose Estimate in RViz
