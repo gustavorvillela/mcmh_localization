@@ -739,7 +739,7 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta, epsilon, 
                 required_samples = int(np.ceil(
                     chi2 / (2.0 * epsilon)
                 ))
-                print("[DEBUG] KLD sampling: k =", k, "required_samples =", required_samples)
+                #print("[DEBUG] KLD sampling: k =", k, "required_samples =", required_samples)
 
                 #if required_samples < min_particles:
                 #    required_samples = min_particles
@@ -747,7 +747,7 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta, epsilon, 
                 #elif required_samples > max_samples:
                 #    required_samples = max_samples
 
-    print("[DEBUG] Occupied bins =", len(bins))
+    #print("[DEBUG] Occupied bins =", len(bins))
 
     return sampled_particles[:count]
 

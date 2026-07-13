@@ -379,7 +379,7 @@ class AMCMHLocalizer:
         
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
-        print(f"[DEBUG] w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | w_avg: {w_avg:.6f} | w_max: {np.max(weights):.6f} | w_min: {np.min(weights):.6f}")
+        #print(f"[DEBUG] w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | w_avg: {w_avg:.6f} | w_max: {np.max(weights):.6f} | w_min: {np.min(weights):.6f}")
 
         #self.weights = weights/np.sum(weights)
 
@@ -862,15 +862,15 @@ class AMCMHLocalizer:
         # Debug
         # ================================================================
 
-        print(
-            f"[DEBUG] "
-            f"w_slow={self.w_slow:.6f} "
-            f"w_fast={self.w_fast:.6f} "
-            f"ratio={ratio:.6f} "
-            f"p_random={p_random:.4f} "
-            f"N_random={N_random} "
-            f"N_final={self.num_particles}"
-        )
+        #print(
+        #    f"[DEBUG] "
+        #    f"w_slow={self.w_slow:.6f} "
+        #    f"w_fast={self.w_fast:.6f} "
+        #    f"ratio={ratio:.6f} "
+        #    f"p_random={p_random:.4f} "
+        #    f"N_random={N_random} "
+        #    f"N_final={self.num_particles}"
+        #)
 
         if self.num_particles != N_prev:
 
