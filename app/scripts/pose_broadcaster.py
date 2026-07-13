@@ -25,20 +25,32 @@ class PoseBroadcaster:
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        self.last_tf_stamp = rospy.Time(0)
         
         rospy.spin()
 
     def pose_callback(self,pose):
 
-        odom_to_base = self.get_odom_to_base()
-        trans, rot = self.compute_map_to_odom_tf(pose.pose,odom_to_base)
-        self.broadcast_transform(trans,rot)
+        stamp = pose.header.stamp
+        if stamp == rospy.Time(0):
+            stamp = rospy.Time.now()
 
-    def get_odom_to_base(self):
+        odom_to_base = self.get_odom_to_base(stamp)
+        if odom_to_base is None:
+            rospy.logwarn_throttle(5.0, "Skipping map->odom broadcast: odom->base_footprint transform unavailable")
+            return
+
+        trans, rot = self.compute_map_to_odom_tf(pose.pose,odom_to_base)
+        self.broadcast_transform(trans,rot,stamp)
+
+    def get_odom_to_base(self, stamp):
         try:
-            return self.tf_buffer.lookup_transform("odom", "base_footprint", rospy.Time(0))
-        except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
-            return None
+            return self.tf_buffer.lookup_transform("odom", "base_footprint", stamp, rospy.Duration(0.05))
+        except (tf2_ros.LookupException, tf2_ros.ExtrapolationException, tf2_ros.ConnectivityException):
+            try:
+                return self.tf_buffer.lookup_transform("odom", "base_footprint", rospy.Time(0))
+            except (tf2_ros.LookupException, tf2_ros.ExtrapolationException, tf2_ros.ConnectivityException):
+                return None
         
     def compute_map_to_odom_tf(self, estimated_pose, odom_to_base):
         # 1. T_map_base (from estimated pose)
@@ -85,12 +97,16 @@ class PoseBroadcaster:
 
         return trans, rot
     
-    def broadcast_transform(self,trans, rot):
+    def broadcast_transform(self,trans, rot, stamp):
 
-        now = rospy.Time.now() if not hasattr(self, 'use_sim_time') else rospy.Time(0)
+        if stamp <= self.last_tf_stamp:
+            rospy.logdebug("Skipping map->odom broadcast with non-increasing stamp %.6f", stamp.to_sec())
+            return
+
+        self.last_tf_stamp = stamp
 
         t = TransformStamped()
-        t.header.stamp = now
+        t.header.stamp = stamp
         t.header.frame_id = "map"
         t.child_frame_id = "odom"
         t.transform.translation.x = trans[0]
