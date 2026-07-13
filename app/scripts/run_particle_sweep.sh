@@ -6,12 +6,12 @@
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
 MODES=("MCL" "MHMCL" "3MCL")  # Can adjust as desired
-PARTICLE_COUNTS=(100 300 500 750 1000)  # particle counts to test
+PARTICLE_COUNTS=(100 200 300)  # particle counts to test
 SCENARIOS=("C")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-REPEATS=30   # number of repeats per configuration
+REPEATS=2   # number of repeats per configuration
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
@@ -28,10 +28,12 @@ scenario_param_file() {
         C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
         M) echo "$PARAMS_DIR/amhmcl_medium.yaml" ;;
         A) echo "$PARAMS_DIR/amhmcl_aggressive.yaml" ;;
-        *)
-            echo "Error: unknown scenario '$1'. Use C, M, or A." >&2
-            exit 1
-            ;;
+        *)  if test -f "$PARAMS_DIR/$1"; then
+                echo "$PARAMS_DIR/$1"
+            else
+                echo "Error: scenario '$1' is unkown or not at that place. Use C, M, A or a valid file." >&2
+                exit 1
+            fi ;;
     esac
 }
 
