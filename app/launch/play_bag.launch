@@ -64,7 +64,7 @@
 
   <!-- Bag player with simulated clock -->  
   <node pkg="rosbag" type="play" name="play_bag"
-    args="--clock --rate=1.0 --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="screen"/>
+    args="--clock --rate=1.0 --quiet $(find mcmh_localization)/bags/$(arg bag_file).bag" output="log"/>
 
   
 
@@ -74,7 +74,7 @@
   <node pkg="rqt_plot" 
         type="rqt_plot"
         name="rqt_plot" 
-        args="/mh_rate"
+        args="/effective_sample_size"
         launch-prefix="bash -c 'sleep 3; exec $0 $@'"
         output="screen">
   </node>

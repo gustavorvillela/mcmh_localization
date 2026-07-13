@@ -126,7 +126,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         # Using the full sum (*total_beams) here made rejected particles ~ -1500,
         # which underflows to exactly 0.0 in exp(score-max) -> degenerate weights
         # and a 0/0 meta reconstruction that drags particles to the origin.
-        worst_case  = np.log(z_rand / max_range + 1e-10)  # Worst case if all beams are random (per-beam)
+        worst_case  = np.log(z_rand / max_range + 1e-10) * len(scan_ranges)  # Worst case if all beams are random (per-beam)
         
         # 1. BODY CHECK: Reject if outside map or inside/on a wall
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
@@ -148,6 +148,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
         for j in range(0, len(scan_ranges), step):
             r = scan_ranges[j]
             if not np.isfinite(r) or r >= max_range or r <= 0: # Treat invalid or max-range readings as random
+                #log_score += np.log(z_rand / max_range + 1e-10)
                 continue
 
             lx = x + r * cos_table[j]
@@ -157,6 +158,7 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
             my = int((ly - map_origin[1]) / map_resolution)
 
             if mx < 0 or mx >= width or my < 0 or my >= height: # distance outside map is treated as random
+                #log_score += np.log(z_rand / max_range + 1e-10)
                 continue 
 
 
@@ -673,11 +675,11 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta, epsilon, 
     """
 
     sampled_particles = np.empty((max_samples, 3), dtype=np.float32)
-
+    
     bins = set()
 
     count = 0
-    required_samples = max_samples
+    required_samples = min_particles
 
     N = len(weights)
 
@@ -755,12 +757,13 @@ def kld_sampling_amcl(particles, weights, bin_size_xy, bin_size_theta, epsilon, 
                 required_samples = int(np.ceil(
                     chi2 / (2.0 * epsilon)
                 ))
+                print("[DEBUG] KLD sampling: k =", k, "required_samples =", required_samples)
 
-                if required_samples < min_particles:
-                    required_samples = min_particles
+                #if required_samples < min_particles:
+                #    required_samples = min_particles
 
-                elif required_samples > max_samples:
-                    required_samples = max_samples
+                #elif required_samples > max_samples:
+                #    required_samples = max_samples
 
     print("[DEBUG] Occupied bins =", len(bins))
 
