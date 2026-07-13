@@ -212,18 +212,18 @@ class AMCMHLocalizer:
 
         # flattened 1D map for fast indexing (same order as map_msg.data)
         self.map_data = map_2d.flatten()      # dtype int8
-        print(f"[DEBUG] Map loaded: width={width}, height={height}, resolution={resolution:.3f} m/cell, origin=({origin_x:.2f}, {origin_y:.2f})")
+        #print(f"[DEBUG] Map loaded: width={width}, height={height}, resolution={resolution:.3f} m/cell, origin=({origin_x:.2f}, {origin_y:.2f})")
 
         # occupancy_map (binary: 0 free, 1 occupied) for distance transform
         obstacles_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0, unknown treated as free for distance map
         #occupancy_binary = (map_2d != 0).astype(np.uint8)  # occupied=1, free=0
 
-        rospy.loginfo("Generating distance map...")
+        #rospy.loginfo("Generating distance map...")
         self.dist_2d = distance_transform_edt(obstacles_binary == 0) * resolution
         unknown_mask = (map_2d == -1)
         self.dist_2d[unknown_mask] = 10*self.max_range  # Assign large distance to unknown cells to encourage exploration, can be tuned based on the environment and desired behavior.
         self.distance_map = self.dist_2d.flatten().astype(np.float32)
-        rospy.loginfo("Distance map generated.")
+        #rospy.loginfo("Distance map generated.")
 
         # free cell coordinates in world frame (consistent with map_2d ordering)
         free_rows, free_cols = np.where(map_2d == 0)  # row=y_index, col=x_index
@@ -351,7 +351,7 @@ class AMCMHLocalizer:
             self.z_short, self.z_max, self.lambda_short
         )
 
-        weights = np.exp(scores- np.max(scores))  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
+        weights = np.exp(scores)  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
 
         return weights
 
@@ -379,9 +379,9 @@ class AMCMHLocalizer:
         
         self.w_slow += self.alpha_slow *(w_avg - self.w_slow)
         self.w_fast += self.alpha_fast *(w_avg - self.w_fast)
-        #print(f"[DEBUG] w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | w_avg: {w_avg:.6f}")
+        print(f"[DEBUG] w_slow: {self.w_slow:.6f} | w_fast: {self.w_fast:.6f} | w_avg: {w_avg:.6f} | w_max: {np.max(weights):.6f} | w_min: {np.min(weights):.6f}")
 
-        self.weights = weights/np.sum(weights)
+        #self.weights = weights/np.sum(weights)
 
 
     #======================================================================
@@ -407,9 +407,9 @@ class AMCMHLocalizer:
         max_w = np.max(weight_safe)
         degenerate = weight_safe < 1e-12 * max(max_w, 1e-300)
         weight_safe[degenerate] = 1e-12  # placeholder; these rows are overwritten below
-        print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={max_w:.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
+        #print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={max_w:.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
-        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
+        meta_xy =self.meta_xy / weight_safe[:, np.newaxis] # Compute mean x and y from weighted sum
 
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
@@ -445,12 +445,13 @@ class AMCMHLocalizer:
         self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
 
         t = time.time()
-        Neff = 1.0 / np.sum(self.weights**2)
-        print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+        Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
+        #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
         if self.use_adaptive:
         
-            self.resample_amcl_kld()
+            if Neff < self.num_particles / 2.0 or self.last_odom is None:
+                self.resample_amcl_kld()
         
         else:
             if Neff < self.num_particles/2 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
@@ -594,7 +595,7 @@ class AMCMHLocalizer:
         else:
 
             delta = np.array((0.0, 0.0, 0.0), dtype=np.float32)       
-            print("[DEBUG] First odometry received, no motion applied.")
+            #print("[DEBUG] First odometry received, no motion applied.")
             
         return delta, current_odom
     
@@ -669,6 +670,7 @@ class AMCMHLocalizer:
         #delta = np.zeros(3, dtype=np.float32)
         particles_prev = particles.copy()
         weights_pre = weights.copy()
+        alpha_rw = self.alpha_rw 
         #alpha_rw[1:] = self.alpha[1:]*2  # Less noise on translation for random walk to keep it more focused on local exploration
 
         for i in range(self.Nr):
@@ -678,7 +680,7 @@ class AMCMHLocalizer:
             #delta = noise # Add small random noise to the odometry delta for the random walk, to encourage exploration around the proposed particles from the MH step. The noise scale can be tuned based on the expected odometry uncertainty and desired exploration level.
 
 
-            particles_prop = apply_random_walk_parallel(particles_prev,self.alpha_rw,
+            particles_prop = apply_random_walk_parallel(particles_prev,alpha_rw,
                                                         self.map_data, self.resolution,
                                                         self.origin_np[0], self.origin_np[1],
                                                         self.width,self.height, self.Nr)
@@ -1013,15 +1015,16 @@ class AMCMHLocalizer:
             acc_rate = 0.0
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
-        print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
+        #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
         t = time.time()
         if self.use_adaptive:
             self.update_acml_weights(weights)
-            self.resample_amcl_kld()
-            self.num_particles = len(self.particles)
+            if Neff < self.num_particles / 1.0:
+                self.resample_amcl_kld()
+                self.num_particles = len(self.particles)
         else:
             self.weights = weights
             if Neff < self.num_particles / 2.0:

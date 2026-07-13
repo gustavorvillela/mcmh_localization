@@ -19,7 +19,7 @@ services:
       - ../../turtlebot3_simulations:/root/catkin_ws/src/turtlebot3_simulations:rw
 
     environment:
-      - DISPLAY
+      - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - OGRE_RTT_MODE=Copy
       - NVIDIA_VISIBLE_DEVICES=all
