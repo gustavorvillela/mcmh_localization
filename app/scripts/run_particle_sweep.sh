@@ -6,12 +6,12 @@
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
 MODES=("MCL" "MHMCL" "3MCL")  # Can adjust as desired
-PARTICLE_COUNTS=(100 200 300)  # particle counts to test
+PARTICLE_COUNTS=(100 200 300 400 500 750 1000)  # particle counts to test
 SCENARIOS=("C")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-REPEATS=2   # number of repeats per configuration
+REPEATS=30   # number of repeats per configuration
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
@@ -31,7 +31,7 @@ scenario_param_file() {
         *)  if test -f "$PARAMS_DIR/$1"; then
                 echo "$PARAMS_DIR/$1"
             else
-                echo "Error: scenario '$1' is unkown or not at that place. Use C, M, A or a valid file." >&2
+                echo "Error: scenario '$1' is not on '$PARAMS_DIR'. Use C, M, A or a valid file." >&2
                 exit 1
             fi ;;
     esac
@@ -57,6 +57,9 @@ until rostopic list >/dev/null 2>&1; do
     sleep 1
 done
 echo "roscore is ready!"
+
+python3 app/scripts/warmup_numba.py
+
 # Determine source of bags
 if [ $# -eq 0 ]; then
     BAGS=("$DEFAULT_BAG_DIR"/*.bag)
