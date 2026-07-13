@@ -331,7 +331,8 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
                 marker=style['marker'],
                 linewidth=2
             )
-
+            
+        plt.tight_layout()
         #title = title.lower().replace(" ","")
         dir_name = f"{scenario}_recall_rates_{metric}.png"
         recall_plot_path = os.path.join(plots_dir, dir_name)
@@ -365,16 +366,20 @@ def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
     styles = styles or {}
     dict_intern = ["x", "y", "yaw"]
 
+    nb_algo = len(best_per_algo)
+    nb_varr = len(dict_intern)
+
+    fig, ax = plt.subplots(nb_varr, nb_algo, figsize=(8*nb_algo, 6*nb_varr))
+
     i = 0
     for varr in dict_intern :
-
-        plt.figure(figsize=(8, 6))
-        title = f"QQ plot of {varr} {particles}p - {scenario}"
-        plot_path = os.path.join(plots_dir, f"{scenario}_qq_{varr}.png")
-
-    
-        for algo, (particles, rmse, best_run) in best_per_algo.items():
         
+        title = f"QQ plot for best runs - {scenario}"
+        plot_path = os.path.join(plots_dir, f"{scenario}_qq.png")
+
+        j = 0
+        for algo, (particles, rmse, best_run) in best_per_algo.items():
+
             est = best_run["est"]
             gt = best_run["gt"]
             mh = best_run.get("mh")
@@ -382,27 +387,28 @@ def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
             gt_u = gt[:, i]
             est_u  = est[:, i]
             if i == 2:
-                gt_u = np.degrees(gt_u[:, 2])
-                est_u = np.degrees(est_u[:, 2])
+                gt_u = np.degrees(gt_u)
+                est_u = np.degrees(est_u)
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
             sm.qqplot_2samples(gt_u, est_u,
                 line="45",
-                label=style['label']+f" {particles}p",
+                xlabel="Ground true",
+                ylabel="Estimated",
+                ax=ax[i, j]
             )
+            ax[i, j].set_title(f"{style['label']} {particles}p {varr}")
+            ax[i, j].grid(True, linestyle='--', alpha=0.4)
+            j += 1
 
-        plt.title(title)
-        plt.xlabel("Ground true")
-        plt.ylabel("Estimated")
-
-        plt.grid(True, linestyle='--', alpha=0.4)
-        plt.axis("equal")
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=200)
-        plt.close()
-        print(f"QQ plot saved at: {plot_path}")
         i += 1
+
+    fig.suptitle(title)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"QQ plot saved at: {plot_path}")
 
 # Action: Plot the effective sample size vs time diagram for the best run
 #           of each algo
@@ -996,7 +1002,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     th, td {border:1px solid #ccc; padding:6px 12px; text-align:center;}
     th {background:#f2f2f2;}
     .best {background:#c8f7c5; font-weight:bold;}
-    img {max-width:800px; margin-top:20px;}
+    img {margin-top:20px;}
     .metric {font-size: 0.9em; color: #444;}
     </style>
     </head>
@@ -1006,8 +1012,6 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     """
 
     for scenario, scenario_data in all_data.items():
-        #algo = scenario_data['algo']
-        #particles = algo['particles']
 
         html += f"<h2>Scenario: {scenario}</h2>"
 
@@ -1015,9 +1019,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         yaw_plot = f"{scenario}_particle_sweep_rmse_yaw.png"
         std_plot = f"{scenario}_particle_sweep_std.png"
         std_yaw_plot = f"{scenario}_particle_sweep_std_yaw.png"
-        best_qq_x = f"{scenario}_qq_x.png"
-        best_qq_y = f"{scenario}_qq_y.png"
-        best_qq_yaw = f"{scenario}_qq_yaw.png"
+        best_qq = f"{scenario}_qq.png"
         best_ess_plot = f"{scenario}_ess_best.png"
         best_path_plot = f"{scenario}_best_paths_all.png"
         ate_curve_plot = f"{scenario}_ate_all.png"
@@ -1032,31 +1034,25 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         prefix = "" if same_dir else "plots/"
 
         html += f"""
-        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px">
-            <img src="{prefix}{ate_curve_plot}">
-            <img src="{prefix}{rmse_plot}">
-            <img src="{prefix}{std_plot}">
-            <img src="{prefix}{best_path_yaw_plot}">
-            <img src="{prefix}{yaw_plot}">
-            <img src="{prefix}{std_yaw_plot}">
-            <img src="{prefix}{success_plot}">
-            <img src="{prefix}{spl_plot}">
-            <img src="{prefix}{recall_plot_t1}">
-            <img src="{prefix}{recall_plot_t2}">
-            <img src="{prefix}{recall_plot_t3}">
-            <img src="{prefix}{failure_plot}">
-            <img src="{prefix}{mh_rate_plot}">
-            <img src="{prefix}{best_path_plot}">
-            <img src="{prefix}{best_ess_plot}">
-            <img src="{prefix}{best_qq_x}">
-            <img src="{prefix}{best_qq_y}">
-            <img src="{prefix}{best_qq_yaw}">
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); width:100%">
+            <img style="max-width:100%; height:100%" src="{prefix}{ate_curve_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{rmse_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{std_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{best_path_yaw_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{yaw_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{std_yaw_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{success_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{spl_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t1}">
+            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t2}">
+            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t3}">
+            <img style="max-width:100%; height:100%" src="{prefix}{failure_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{mh_rate_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{best_path_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{best_ess_plot}">
         </div>
-        """
-
-        html += f"""
-        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px">
-            <img src="{prefix}[.*qq.*]"
+        <div style="display:grid; grid-template-columns:1fr; width:100%">
+            <img style="max-width:100%; height:100%" src="{prefix}{best_qq}">
         </div>
         """
 
