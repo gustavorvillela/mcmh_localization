@@ -87,93 +87,75 @@ def compute_likelihoods(scan_ranges, angles, particles, distance_map,
                         map_resolution, map_origin, width, height,
                         sigma_hit=0.35, z_hit=0.9, z_rand=0.1, max_range=10, step=1,
                         z_short=0.05, z_max=0.05, lambda_short=0.1):
-    
-    """
-    Compute particle likelihoods using beam model with distance map.
-    Args:
-        scan_ranges: (M,) array of LIDAR ranges
-        angles: (M,) array of LIDAR angles
-        particles: (N, 3) array of particle poses [x, y, theta]
-        distance_map: (H*W,) flattened distance map
-        map_resolution: float, map resolution in meters/cell
-        map_origin: (2,) array, map origin [origin_x, origin_y]
-        width: int, map width in cells
-        height: int, map height in cells
-        sigma_hit: float, standard deviation for hit model
-        z_hit: float, weight for hit model
-        z_rand: float, weight for random model
-        max_range: float, maximum sensor range
-        step: int, downsampling step for beams
-    Returns:
-        scores: (N,) array of log-likelihoods for each particle
-    """
 
     N = particles.shape[0]
     scores = np.zeros(N, dtype=np.float32)
+
+    # Constant beam count: identical for every particle, so dividing by it
+    # is pure numerical scaling (prevents exp underflow) and does NOT let a
+    # pose improve its average by having beams skipped. Every skipped beam
+    # still lands in the numerator as a random-floor penalty.
+    total_beams = len(range(0, len(scan_ranges), step))
+    if total_beams == 0:
+        total_beams = 1  # guard against empty scan
+
+    rand_logp = np.log(z_rand / max_range + 1e-10)      # per-beam random floor
+    worst_case = rand_logp*total_beams                              # all beams random -> this average
 
     for i in prange(N):
         x, y, theta = particles[i]
 
         cos_table = np.cos(theta + angles)
         sin_table = np.sin(theta + angles)
-        
-        # Grid coordinates for the robot body
+
+        # Robot body cell
         mx_r = int((x - map_origin[0]) / map_resolution)
         my_r = int((y - map_origin[1]) / map_resolution)
 
-        # Worst case = "all beams random", expressed as a PER-BEAM average so it
-        # lives on the same scale as the valid score below (log_score/valid_count).
-        # Using the full sum (*total_beams) here made rejected particles ~ -1500,
-        # which underflows to exactly 0.0 in exp(score-max) -> degenerate weights
-        # and a 0/0 meta reconstruction that drags particles to the origin.
-        worst_case  = np.log(z_rand / max_range + 1e-10) * len(scan_ranges)  # Worst case if all beams are random (per-beam)
-        
-        # 1. BODY CHECK: Reject if outside map or inside/on a wall
+        # 1. BODY CHECK: outside map -> reject
         if mx_r < 0 or mx_r >= width or my_r < 0 or my_r >= height:
             scores[i] = worst_case
             continue
-            
-        # If distance to nearest wall is 0 (or very small), the robot is in a wall
-        robot_radius = 0.18
 
+        # Robot inside/too close to a wall -> reject
+        robot_radius = 0.18
         idx_r = my_r * width + mx_r
-        if distance_map[idx_r] <= robot_radius/2: # If the robot is too close to a wall, reject this particle
+        if distance_map[idx_r] <= robot_radius / 2:
             scores[i] = worst_case
             continue
 
         log_score = 0.0
-        valid_count = 0
-        
 
         for j in range(0, len(scan_ranges), step):
             r = scan_ranges[j]
-            if not np.isfinite(r) or r >= max_range or r <= 0: # Treat invalid or max-range readings as random
-                #log_score += np.log(z_rand / max_range + 1e-10)
+
+            # Invalid or max-range reading: this beam is unexplained by the
+            # map at this pose -> random floor, and it STILL counts (no skip
+            # of the denominator, because the denominator is now constant).
+            if not np.isfinite(r) or r >= max_range or r <= 0:
+                log_score += rand_logp
                 continue
 
             lx = x + r * cos_table[j]
             ly = y + r * sin_table[j]
-            
             mx = int((lx - map_origin[0]) / map_resolution)
             my = int((ly - map_origin[1]) / map_resolution)
 
-            if mx < 0 or mx >= width or my < 0 or my >= height: # distance outside map is treated as random
-                #log_score += np.log(z_rand / max_range + 1e-10)
-                continue 
+            # Endpoint outside map -> evidence against pose -> random floor.
+            if mx < 0 or mx >= width or my < 0 or my >= height:
+                log_score += rand_logp
+                continue
 
-
-            # 2. SENSOR SCORE: distance_map[idx] is distance to nearest wall
-            # We WANT this to be 0 for a perfect match
+            # Likelihood-field score: dist to nearest obstacle at endpoint.
             dist = distance_map[my * width + mx]
-            
             p_hit = gaussian_prob(dist, sigma_hit)
 
-            
             p = z_hit * p_hit + z_rand * (1.0 / max_range)
             log_score += np.log(p + 1e-10)
-            valid_count += 1
 
-        scores[i] = log_score/valid_count # Scale down to prevent overflow in exp
+        # Divide by the CONSTANT beam count: keeps exp() in range AND makes
+        # skipped/penalized beams genuinely lower the average.
+        scores[i] = log_score / total_beams
 
     return scores
 
@@ -482,9 +464,9 @@ def apply_random_walk_parallel(particles, alpha_rw, map_data, map_resolution, or
             #r2_hat = np.random.normal(0, (a1 + a2)/walk_length)
             #delta_hat = np.array([r1_hat, t_hat, r2_hat])
 
-            x_new = np.random.normal(x, (a3+a4)/walk_length)
-            y_new = np.random.normal(y, (a3+a4)/walk_length)
-            theta_new = np.random.normal(theta, (a1+a2)/walk_length)
+            x_new = np.random.normal(x, a3/walk_length)
+            y_new = np.random.normal(y, a4/walk_length)
+            theta_new = np.random.normal(theta, a1/walk_length)
 
             if is_valid_position(x_new, y_new, map_data, width, height, map_resolution, origin_x, origin_y):
                 new_particles[i] = [x_new, y_new, theta_new]

@@ -409,7 +409,7 @@ class AMCMHLocalizer:
         weight_safe[degenerate] = 1e-12  # placeholder; these rows are overwritten below
         #print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={max_w:.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
-        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
+        meta_xy =self.meta_xy / weight_safe[:, np.newaxis] # Compute mean x and y from weighted sum
 
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
@@ -445,12 +445,13 @@ class AMCMHLocalizer:
         self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
 
         t = time.time()
-        Neff = 1.0 / np.sum(self.weights**2)
+        Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
         if self.use_adaptive:
         
-            self.resample_amcl_kld()
+            if Neff < self.num_particles / 2.0 or self.last_odom is None:
+                self.resample_amcl_kld()
         
         else:
             if Neff < self.num_particles/2 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
