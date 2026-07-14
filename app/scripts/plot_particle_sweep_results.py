@@ -136,10 +136,9 @@ def calculate_navigation_metrics(est, gt):
     }
 
 def Success(est, gt) :
-    err_pos_x = np.abs(est[-1][0] - gt[-1][0])
-    err_pos_y = np.abs(est[-1][1] - gt[-1][1])
-    err_pos_yaw = np.abs(est[-1][2] - gt[-1][2])
-    return err_pos_x < FAILURE_POS_THRESHOLD and err_pos_y < FAILURE_POS_THRESHOLD and err_pos_yaw < FAILURE_YAW_THRESHOLD
+    err_pos = np.linalg.norm(est[-1, :2] - gt[-1, :2])
+    err_yaw = np.abs(est[-1][2] - gt[-1][2])
+    return err_pos< FAILURE_POS_THRESHOLD and err_yaw < FAILURE_YAW_THRESHOLD
 
 def extract_neff(filepath):
     neff = []
