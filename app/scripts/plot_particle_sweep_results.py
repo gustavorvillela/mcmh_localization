@@ -12,7 +12,7 @@ GT_X_OFFSET = float(os.environ.get("MCMH_GT_X_OFFSET", "0.7"))
 RECALL_THRESHOLDS = {
     "recall_t1": (0.50, np.deg2rad(05.0)),
     "recall_t2": (1.00, np.deg2rad(10.0)),
-    "recall_t3": (5.00, np.deg2rad(60.0)),
+    "recall_t3": (5.00, np.deg2rad(30.0)),
 }
 FAILURE_POS_THRESHOLD = 1.00
 FAILURE_YAW_THRESHOLD = np.deg2rad(10.0)
