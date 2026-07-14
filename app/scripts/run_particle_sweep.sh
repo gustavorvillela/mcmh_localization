@@ -11,7 +11,7 @@ SCENARIOS=("M")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-REPEATS=5   # number of repeats per configuration
+REPEATS=30   # number of repeats per configuration
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."

@@ -10,12 +10,12 @@ list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
 GT_X_OFFSET = float(os.environ.get("MCMH_GT_X_OFFSET", "0.7"))
 RECALL_THRESHOLDS = {
-    "recall_t1": (0.25, np.deg2rad(2.0)),
-    "recall_t2": (0.50, np.deg2rad(5.0)),
-    "recall_t3": (5.00, np.deg2rad(10.0)),
+    "recall_t1": (0.50, np.deg2rad(05.0)),
+    "recall_t2": (1.00, np.deg2rad(10.0)),
+    "recall_t3": (5.00, np.deg2rad(60.0)),
 }
-FAILURE_POS_THRESHOLD = 5.0
-FAILURE_YAW_THRESHOLD = np.deg2rad(45.0)
+FAILURE_POS_THRESHOLD = 1.00
+FAILURE_YAW_THRESHOLD = np.deg2rad(10.0)
 METRIC_KEYS = [
     "pos",
     "yaw",
@@ -117,7 +117,7 @@ def calculate_navigation_metrics(est, gt):
     est_path_m = trajectory_length_xy(est[:, :2])
     gt_path_km = gt_path_m / 1000.0
     failure_events = count_failure_events(pos_errors, yaw_abs)
-    success = 1.0 if failure_events == 0 else 0.0
+    success = 1.0 if Success(est, gt) else 0.0
 
     recalls = {
         key: float(np.mean((pos_errors < pos_thr) & (yaw_abs < yaw_thr)))
@@ -134,6 +134,12 @@ def calculate_navigation_metrics(est, gt):
             failure_events / gt_path_km if gt_path_km > 0.0 else float("nan")
         ),
     }
+
+def Success(est, gt) :
+    err_pos_x = np.abs(est[-1][0] - gt[-1][0])
+    err_pos_y = np.abs(est[-1][1] - gt[-1][1])
+    err_pos_yaw = np.abs(est[-1][2] - gt[-1][2])
+    return err_pos_x < FAILURE_POS_THRESHOLD and err_pos_y < FAILURE_POS_THRESHOLD and err_pos_yaw < FAILURE_YAW_THRESHOLD
 
 def extract_neff(filepath):
     neff = []
@@ -868,9 +874,6 @@ def process_results_dir(results_dir, results_root):
                     )
 
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate(file_path)
-                #file_success = Success(file_path)
-                #if file_success is not None:
-                #    data_metrics[scenario][algo][particles][run]["success"] = file_success
 
     if not data:
         print(f"No valid data found in {results_dir}.")
@@ -1026,11 +1029,11 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
         mh_rate_plot = f"{scenario}_mh_rate_all.png"
         success_plot = f"{scenario}_success_rate.png"
+        failure_plot = f"{scenario}_failure_rate.png"
         spl_plot = f"{scenario}_spl.png"
         recall_plot_t1 = f"{scenario}_recall_rates_recall_t1.png"
         recall_plot_t2 = f"{scenario}_recall_rates_recall_t2.png"
         recall_plot_t3 = f"{scenario}_recall_rates_recall_t3.png"
-        failure_plot = f"{scenario}_failure_rate.png"
         prefix = "" if same_dir else "plots/"
 
         html += f"""
@@ -1043,10 +1046,10 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
             <img style="max-width:100%; height:100%" src="{prefix}{std_yaw_plot}">
             <img style="max-width:100%; height:100%" src="{prefix}{success_plot}">
             <img style="max-width:100%; height:100%" src="{prefix}{spl_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{failure_plot}">
             <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t1}">
             <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t2}">
             <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t3}">
-            <img style="max-width:100%; height:100%" src="{prefix}{failure_plot}">
             <img style="max-width:100%; height:100%" src="{prefix}{mh_rate_plot}">
             <img style="max-width:100%; height:100%" src="{prefix}{best_path_plot}">
             <img style="max-width:100%; height:100%" src="{prefix}{best_ess_plot}">
