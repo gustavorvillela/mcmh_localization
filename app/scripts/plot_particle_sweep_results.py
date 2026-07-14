@@ -338,6 +338,7 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
             )
             
         plt.tight_layout()
+        plt.legend()
         #title = title.lower().replace(" ","")
         dir_name = f"{scenario}_recall_rates_{metric}.png"
         recall_plot_path = os.path.join(plots_dir, dir_name)
