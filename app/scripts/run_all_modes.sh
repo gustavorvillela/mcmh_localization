@@ -16,6 +16,15 @@ PARAMS_DIR="$(rospack find mcmh_localization)/params"
 REPEATS=30   # number of repeats per scenario
 mkdir -p "$RESULTS_DIR"
 
+echo "Cleaning previous results..."
+# Remove only generated result files (safe filter)
+find "$RESULTS_DIR" -type f \( \
+    -name "*.txt" -o \
+    -name "*.html" -o \
+    -name "*.png" -o \
+    -name "*.csv" \
+\) -delete
+
 scenario_param_file() {
     case "$1" in
         C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
