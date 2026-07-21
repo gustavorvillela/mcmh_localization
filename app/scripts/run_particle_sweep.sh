@@ -107,10 +107,6 @@ for SCENARIO in "${SCENARIOS[@]}"; do
                     export BAG_FILE="$BAG"
                     RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
 
-                    roslaunch cpu_monitor cpu_monitor.launch \
-                        cpu_monitor:="true" \
-                        &
-
                     roslaunch mcmh_localization test_algs.launch \
                         mode:=$MODE \
                         result_name:=$RESULT_NAME \

@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     git \
     xauth \
     mesa-utils \
+    python3-psutil \
     && rm -rf /var/lib/apt/lists/*
 
 # Python scientific stack
@@ -22,8 +23,7 @@ RUN pip3 install --no-cache-dir --upgrade \
     scipy \
     numba \
     matplotlib \
-    statsmodels \
-    psutil
+    statsmodels
 
 # Install default ROS packages for TurtleBot3
 RUN apt-get update && apt-get install -y \
@@ -46,6 +46,8 @@ WORKDIR /root/catkin_ws
 COPY mcmh_localization/app src/mcmh_localization
 
 COPY ./turtlebot3_diff src/turtlebot3
+
+COPY ./cpu_monitor src/cpu_monitor
 
 
 
