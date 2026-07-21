@@ -20,7 +20,8 @@ echo "Cleaning previous results..."
 find "$RESULTS_DIR" -type f \( \
     -name "*.txt" -o \
     -name "*.html" -o \
-    -name "*.png" \
+    -name "*.png" -o \
+    -name "*.csv" \
 \) -delete
 
 scenario_param_file() {
