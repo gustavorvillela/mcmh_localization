@@ -25,6 +25,8 @@ METRIC_KEYS = [
     "recall_t2",
     "recall_t3",
     "failure_rate",
+    "cpu_use",
+    "memory_use"
 ]
 
 def extract_particles(filename):
@@ -46,6 +48,9 @@ def extract_scenario(filename):
 
     # remove neff_ prefix if present
     name = name.replace("neff_", "")
+
+    # remove monitor_ prefix if present
+    name = name.replace("monitor_", "")
 
     # remove particle specification
     name = re.sub(r'_\d+p_', '_', name)
@@ -153,6 +158,22 @@ def extract_neff(filepath):
     except Exception as e:
         print(f"Error opening {filepath} in extract_neff: {e}")
     return neff
+
+def extract_monitor(filepath) :
+    L_cpu = []
+    L_mem = []
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if not line:
+                    continue
+                t, cpu, mem = line.split(',')
+                if not (cpu == " " or mem == " " or t == 'time') :
+                    L_cpu.append(float(cpu.strip()))
+                    L_mem.append(int(float(mem.strip())))
+    except Exception as e:
+        print(f"Error opening {filepath} in extract_monitor: {e}")
+    return L_cpu, L_mem
 
 # Action: Classify one position/yaw error sample according to the recall thresholds.
 # I/ err_pos: Float position error in meters
@@ -490,6 +511,60 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
     plt.close()
     print(f"ESS plot saved at: {plot_path}")
 
+def plot_monitoring(metric, scenario, best_info, data_metrics, plots_dir, styles) :
+    if not best_info:
+        print(f"No best-run information available for monitoring plot: {scenario}")
+        return
+
+    D_metrics = {
+        "cpu_use": "CPU use (% of total)",
+        "memory_use": "Memory use (in MByte)"
+    }
+
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    title = f"{metric} vs time - {scenario}"
+
+    plt.title(title)
+    plt.xlabel("Time (iteration)")
+    plt.ylabel(f"{D_metrics[metric]}")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_{metric}_best.png")
+    plotted = False
+
+    for algo, (particles, run) in best_info.items():
+        data = data_metrics[scenario][algo][particles][run].get(metric, [])
+        if not data:
+            print(f"Warning: No {metric} data for {scenario} | {algo} | {particles}p | run {run}")
+            continue
+        if metric == "memory_use" :
+            data = [val * 10e-6 for val in data]
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.plot(
+            data,
+            label=style['label']+f" {particles}p",
+            color=style['color'],
+            linestyle=style['linestyle'],
+            linewidth=2
+        )
+        plotted = True
+
+    if not plotted:
+        plt.close()
+        print(f"No {metric} plot generated for {scenario}: no {metric} samples found.")
+        return
+
+    if metric == "memory_use" : plt.yscale('log')
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"{metric} plot saved at: {plot_path}")
+
 def calculate_yaw_rmse(est, gt):
     
     if est.shape[0] != gt.shape[0]:
@@ -809,7 +884,9 @@ def process_results_dir(results_dir, results_root):
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
         "recall_rate": None,
         "effective_sample_size": [],
-        "success": None
+        "success": None,
+        "cpu_use": [],
+        "memory_use": []
     }))))
 
     for filename in os.listdir(results_dir):
@@ -856,6 +933,19 @@ def process_results_dir(results_dir, results_root):
             if algo and particles:
                 data_metrics[scenario][algo][particles][run]["effective_sample_size"] = extract_neff(file_path)
                 print(f"Loaded ESS: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
+        
+        elif filename.startswith("monitor_"):
+            algo = extract_algorithm(filename)
+            particles = extract_particles(filename)
+            scenario = extract_scenario(filename)
+            run = extract_run(filename)
+
+            if algo and particles:
+                print(f"{filename}")
+                cpu, mem = extract_monitor(file_path)
+                data_metrics[scenario][algo][particles][run]["cpu_use"] = cpu
+                data_metrics[scenario][algo][particles][run]["memory_use"] = mem
+                print(f"Loaded cpu and memory usage from: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
 
         else:
             algo = extract_algorithm(filename)
@@ -970,6 +1060,8 @@ def process_results_dir(results_dir, results_root):
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
+        plot_monitoring("cpu_use", scenario, best_info, data_metrics, plots_dir, styles)
+        plot_monitoring("memory_use", scenario, best_info, data_metrics, plots_dir, styles)
         
     generate_html_report(data, plots_dir, True, report_label)
 
