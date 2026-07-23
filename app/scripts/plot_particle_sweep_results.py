@@ -5,6 +5,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import statsmodels.api as sm
+import itertools as its
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
@@ -565,6 +568,123 @@ def plot_monitoring(metric, scenario, best_info, data_metrics, plots_dir, styles
     plt.close()
     print(f"{metric} plot saved at: {plot_path}")
 
+def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    list_algo = [algo for algo in data_metrics[scenario]]
+    list_particles = [particles for particles in data_metrics[scenario][list_algo[0]]]
+
+    for particles in list_particles :
+
+        title = f"Memory use vs RMSE - {particles}p - {scenario}"
+
+        plt.title(title)
+        plt.xlabel("Position RMSE (m)")
+        plt.ylabel("Memory use (MB)")
+
+        plot_path = os.path.join(plots_dir, f"{scenario}_mem_rmse_{particles}p.png")
+        plotted = False     
+    
+        for algo in list_algo :
+            list_mem = []
+            list_rmse = []
+            for run in data_metrics[scenario][algo][particles] :
+                mem = data_metrics[scenario][algo][particles][run].get("memory_use")
+                list_mem.append(np.mean(mem) * 10e-6)
+                list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
+                                
+
+            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+            plt.scatter(
+                y=list_mem,
+                x=list_rmse,
+                label=style['label']+f" {particles}p",
+                color=style['color'],
+                #marker=style['marker']
+                #linestyle=style['linestyle'],
+            )
+            plotted = True
+
+        if not plotted:
+            plt.close()
+            print(f"No mem-rmse plot generated for {scenario}: no samples found.")
+            return
+
+        #plt.yscale('log')
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print(f"mem-rmse plot saved at: {plot_path}")
+
+def plot_mem_vs_rmse_allinone(scenario, data_metrics, data, plots_dir, styles) :
+    style_marker = {
+        100: 'o',
+        300: 's',
+        500: 'v',
+        750: '+',
+        1000: '*'
+    }
+
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    title = f"Memory use vs RMSE - {scenario}"
+    plt.title(title)
+    plt.xlabel("Position RMSE (m)")
+    plt.ylabel("Memory use (MB)")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_mem_rmse_all.png")
+    plotted = False     
+
+    list_algo = [algo for algo in data_metrics[scenario]]
+    list_particles = [particles for particles in data_metrics[scenario][list_algo[0]]]
+
+    sets = its.product(list_algo, list_particles)
+
+    for algo, particles in sets :
+        list_mem = []
+        list_rmse = []
+        for run in data_metrics[scenario][algo][particles] :
+            mem = data_metrics[scenario][algo][particles][run].get("memory_use")
+            list_mem.append(np.mean(mem) * 10e-6)
+            list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.scatter(
+            y=list_mem,
+            x=list_rmse,
+            #label=style['label']+f" {particles}p",
+            color=style['color'],
+            marker=style_marker[particles]
+            #linestyle=style['linestyle'],
+        )
+        plotted = True
+
+    if not plotted:
+        plt.close()
+        print(f"No mem-rmse plot generated for {scenario}: no samples found.")
+        return
+
+    handles = []
+    for entry in list_particles :
+        handles.append(mlines.Line2D([], [], color='black', marker=style_marker[entry], label=f"{entry}p", linewidth=0))
+    for entry in list_algo :
+        handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
+    
+
+    #plt.yscale('log')
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend(handles=handles)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"mem-rmse plot saved at: {plot_path}")
+
 def calculate_yaw_rmse(est, gt):
     
     if est.shape[0] != gt.shape[0]:
@@ -877,7 +997,8 @@ def process_results_dir(results_dir, results_root):
     # Data structure:
     # data_metrics[scenario][algorithm][particles][run] = {
     #     "recall_rate": [...],
-    #     "effective_sample_size": [...]
+    #     "effective_sample_size": [...],
+    #     ...
     # }
     # This keeps per-run diagnostics such as ESS/Neff while `data` stores
     # aggregated metrics used in plots and the HTML report.
@@ -1038,6 +1159,9 @@ def process_results_dir(results_dir, results_root):
             "Failure Rate",
             styles=styles
         )
+
+        plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
+        plot_mem_vs_rmse_allinone(scenario, data_metrics, data, plots_dir, styles)
 
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
