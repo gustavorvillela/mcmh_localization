@@ -233,7 +233,7 @@ def Recall_Rate(filepath):
     return rr
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
-    styles = styles or {} # What is it doing
+    styles = styles or {}
 
     plt.figure(figsize=(8, 6))
     path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
