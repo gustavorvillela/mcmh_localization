@@ -64,7 +64,7 @@
   <node pkg="rosbag" type="play" name="play_bag" args="--clock $(arg bag_file)" output="log"/>
 
   <!-- CPU and memory monitor -->
-  <node pkg="cpu_monitor" name="cpu_monitor" type="monitor.py" output="screen">
+  <node pkg="cpu_monitor" name="cpu_monitor" type="monitor.py" output="log">
     <param name="poll_period" value="$(arg poll_period)"/>
     <param name="save_to_csv" value="$(arg save_to_csv)"/>
     <param name="csv_file" value="$(arg results_dir)/$(arg name_ext)$(arg csv_file)$(arg result_name).txt"/>
