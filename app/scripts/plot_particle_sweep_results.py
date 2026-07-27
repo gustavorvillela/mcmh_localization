@@ -31,11 +31,27 @@ METRIC_KEYS = [
     "memory_use"
 ]
 STYLE_MARKER = {
+        50: '|',
         100: 'o',
+        150: 'h',
+        200: 'x',
+        250: '<',
         300: 's',
+        350: '>',
+        400: '^',
+        450: '_',
         500: 'v',
+        550: '2',
+        600: 'p',
+        650: 'H',
+        700: '.',
         750: '+',
+        800: '1',
+        850: '8',
+        900: '3',
+        950: 'P',
         1000: '*'
+        #'other': ',4X'
     }
 
 def extract_particles(filename):
@@ -526,7 +542,7 @@ def plot_monitoring(metric, scenario, best_info, data_metrics, plots_dir, styles
         return
 
     D_metrics = {
-        "cpu_use": "CPU use",
+        "cpu_use": "CPU use (percentage)",
         "memory_use": "Memory use (in MByte)"
     }
 
@@ -625,10 +641,10 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
         plt.close()
         print(f"mem-rmse plot saved at: {plot_path}")
 
-def plot_metric_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plots_dir, styles) :
+def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plots_dir, styles) :
 
     D_metrics = {
-        "cpu_use": "CPU use",
+        "cpu_use": "CPU use (percentage)",
         "memory_use": "Memory use (in MByte)"
     }
 
@@ -663,10 +679,8 @@ def plot_metric_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plots_d
             plt.scatter(
                 y=list_data,
                 x=list_rmse,
-                #label=style['label']+f" {particles}p",
                 color=style['color'],
                 marker=STYLE_MARKER[particles]
-                #linestyle=style['linestyle'],
             )
             plotted = True
 
@@ -681,8 +695,6 @@ def plot_metric_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plots_d
     for entry in list_algo :
         handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
     
-
-    #plt.yscale('log')
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
@@ -1166,8 +1178,8 @@ def process_results_dir(results_dir, results_root):
         )
 
         #plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
-        plot_metric_vs_rmse_all_in_one("memory_use", scenario, data_metrics, data, plots_dir, styles)
-        plot_metric_vs_rmse_all_in_one("cpu_use", scenario, data_metrics, data, plots_dir, styles)
+        plot_monitoring_vs_rmse_all_in_one("memory_use", scenario, data_metrics, data, plots_dir, styles)
+        plot_monitoring_vs_rmse_all_in_one("cpu_use", scenario, data_metrics, data, plots_dir, styles)
 
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
