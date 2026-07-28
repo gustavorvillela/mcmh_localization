@@ -1271,6 +1271,8 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         recall_plot_t1 = f"{scenario}_recall_rates_recall_t1.png"
         recall_plot_t2 = f"{scenario}_recall_rates_recall_t2.png"
         recall_plot_t3 = f"{scenario}_recall_rates_recall_t3.png"
+        cpu_rmse_plot = f"{scenario}_cpu_use_rmse_all.png"
+        memory_rmse_plot = f"{scenario}_memory_use_rmse_all.png"
         prefix = "" if same_dir else "plots/"
 
         html += f"""
@@ -1293,6 +1295,11 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         </div>
         <div style="display:grid; grid-template-columns:1fr; width:100%">
             <img style="max-width:100%; height:100%" src="{prefix}{best_qq}">
+        </div>
+        <div>
+            <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:100%">
+            <img style="max-width:100%; height:100%" src="{prefix}{cpu_rmse_plot}">
+            <img style="max-width:100%; height:100%" src="{prefix}{memory_rmse_plot}">
         </div>
         """
 
