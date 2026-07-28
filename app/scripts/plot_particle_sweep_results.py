@@ -198,6 +198,8 @@ def extract_monitor(filepath) :
                     L_mem.append(int(float(mem.strip())))
     except Exception as e:
         print(f"Error opening {filepath} in extract_monitor: {e}")
+    if L_cpu[0] == 0 :
+        return L_cpu[1::], L_mem
     return L_cpu, L_mem
 
 # Action: Classify one position/yaw error sample according to the recall thresholds.
@@ -644,7 +646,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
 def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plots_dir, styles) :
 
     D_metrics = {
-        "cpu_use": "CPU use (percentage)",
+        "cpu_use": "CPU use (% of one cpu)",
         "memory_use": "Memory use (in MByte)"
     }
 
@@ -1178,6 +1180,7 @@ def process_results_dir(results_dir, results_root):
         )
 
         #plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
+        
         plot_monitoring_vs_rmse_all_in_one("memory_use", scenario, data_metrics, data, plots_dir, styles)
         plot_monitoring_vs_rmse_all_in_one("cpu_use", scenario, data_metrics, data, plots_dir, styles)
 
@@ -1202,8 +1205,8 @@ def process_results_dir(results_dir, results_root):
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
-        plot_monitoring("cpu_use", scenario, best_info, data_metrics, plots_dir, styles)
-        plot_monitoring("memory_use", scenario, best_info, data_metrics, plots_dir, styles)
+        #plot_monitoring("cpu_use", scenario, best_info, data_metrics, plots_dir, styles)
+        #plot_monitoring("memory_use", scenario, best_info, data_metrics, plots_dir, styles)
         
     generate_html_report(data, plots_dir, True, report_label)
 
