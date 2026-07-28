@@ -1366,12 +1366,13 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     body {font-family: Arial; margin:40px;}
     h1 {color:#2c3e50;}
     h2 {margin-top:40px; color:#2980b9;}
-    table {border-collapse: collapse; margin-top:15px;}
+    table {border-collapse: collapse; margin-top:40px; width:100%;}
     th, td {border:1px solid #ccc; padding:6px 12px; text-align:center;}
     th {background:#f2f2f2;}
     .best {background:#c8f7c5; font-weight:bold;}
-    img {margin-top:20px;}
+    img {margin-top:20px; max-width:100%; height:100%;}
     .metric {font-size: 0.9em; color: #444;}
+
     </style>
     </head>
     <body>
@@ -1405,29 +1406,28 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
 
         html += f"""
         <div style="display:grid; grid-template-columns:repeat(3, 1fr); width:100%">
-            <img style="max-width:100%; height:100%" src="{prefix}{ate_curve_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{rmse_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{std_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_path_yaw_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{yaw_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{std_yaw_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{success_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{spl_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{failure_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t1}">
-            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t2}">
-            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t3}">
-            <img style="max-width:100%; height:100%" src="{prefix}{mh_rate_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_path_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_ess_plot}">
+            <img src="{prefix}{ate_curve_plot}">
+            <img src="{prefix}{rmse_plot}">
+            <img src="{prefix}{std_plot}">
+            <img src="{prefix}{best_path_yaw_plot}">
+            <img src="{prefix}{yaw_plot}">
+            <img src="{prefix}{std_yaw_plot}">
+            <img src="{prefix}{success_plot}">
+            <img src="{prefix}{spl_plot}">
+            <img src="{prefix}{failure_plot}">
+            <img src="{prefix}{recall_plot_t1}">
+            <img src="{prefix}{recall_plot_t2}">
+            <img src="{prefix}{recall_plot_t3}">
+            <img src="{prefix}{mh_rate_plot}">
+            <img src="{prefix}{best_path_plot}">
+            <img src="{prefix}{best_ess_plot}">
         </div>
         <div style="display:grid; grid-template-columns:1fr; width:100%">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_qq}">
+            <img src="{prefix}{best_qq}">
         </div>
-        <div>
-            <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:100%">
-            <img style="max-width:100%; height:100%" src="{prefix}{cpu_rmse_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{memory_rmse_plot}">
+        <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:100%">
+            <img src="{prefix}{cpu_rmse_plot}">
+            <img src="{prefix}{memory_rmse_plot}">
         </div>
         """
 
