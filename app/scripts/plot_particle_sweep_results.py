@@ -1067,7 +1067,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
 
         algorithms = sorted(scenario_data.keys())
 
-        html += "<table>"
+        html += """<table style="width:100%">"""
         html += "<tr><th>Particles</th>"
 
         for algo in algorithms:
