@@ -245,18 +245,28 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
         style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
         if stat == "mean":
-            plt.errorbar(
-                particles,
-                stats,
-                yerr=std_devs,
+            particles_arr = np.asarray(particles, dtype=float)
+            stats_arr = np.asarray(stats, dtype=float)
+            std_arr = np.asarray(std_devs, dtype=float)
+            lower = np.maximum(stats_arr - std_arr, 0.0)
+            upper = stats_arr + std_arr
+
+            plt.fill_between(
+                particles_arr,
+                lower,
+                upper,
+                color=style['color'],
+                alpha=0.18,
+                linewidth=0
+            )
+            plt.plot(
+                particles_arr,
+                stats_arr,
                 label=style['label'],
                 color=style['color'],
                 linestyle=style['linestyle'],
                 marker=style['marker'],
-                linewidth=2,
-                elinewidth=1.4,
-                capsize=5,
-                capthick=1.4
+                linewidth=2
             )
         else:
             plt.plot(
