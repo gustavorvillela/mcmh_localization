@@ -209,11 +209,11 @@ def Recall_Rate(filepath):
     return rr
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
-    styles = styles or {} # What is it doing
+    styles = styles or {}
 
     plt.figure(figsize=(8, 6))
     path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
-    stat_type = "Mean" if stat == "mean" else "Std Dev"
+    stat_type = "Mean +/- Std Dev" if stat == "mean" else "Std Dev"
      
     ylabel = f"{path_type} - {stat_type} {measure}"
     title = f"{path_type} RMSE {stat_type} vs Number of Particles - {scenario}"
@@ -226,27 +226,48 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
         particles = []
         stats = []
+        std_devs = []
         for particle_count in sorted(results.keys()):
             value = results[particle_count].get(f"{test}_{stat}")
             if value is None or np.isnan(value):
                 continue
             particles.append(particle_count)
             stats.append(value)
+            if stat == "mean":
+                std_value = results[particle_count].get(f"{test}_std")
+                if std_value is None or np.isnan(std_value):
+                    std_value = 0.0
+                std_devs.append(std_value)
 
         if not particles:
             continue
 
         style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-        plt.plot(
-            particles,
-            stats,
-            label=style['label'],
-            color=style['color'],
-            linestyle=style['linestyle'],
-            marker=style['marker'],
-            linewidth=2
-        )
+        if stat == "mean":
+            plt.errorbar(
+                particles,
+                stats,
+                yerr=std_devs,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2,
+                elinewidth=1.4,
+                capsize=5,
+                capthick=1.4
+            )
+        else:
+            plt.plot(
+                particles,
+                stats,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
 
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
