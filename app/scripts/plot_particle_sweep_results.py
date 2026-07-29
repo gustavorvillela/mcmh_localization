@@ -192,7 +192,24 @@ def extract_neff(filepath):
         print(f"Error opening {filepath} in extract_neff: {e}")
     return neff
 
+# Action: Extract cpu and memory monitoring from file
+# I/ filepath: String a path to file
+# O/ L_cpu: List of cpu use over time
+# O/ L_mem: List of memory use over time
+# Necessity: a valid file with three column (time cpu, memory) 
+#           separate by comma
+# Produce: two list of all valid data (no blanc value or 
+#           first 0 from cpu monitoring if present)
 def extract_monitor(filepath) :
+    '''
+    Action: Extract cpu and memory monitoring from file \\
+    I/ filepath: String a path to file \\
+    O/ L_cpu: List of cpu use over time \\
+    O/ L_mem: List of memory use over time \\
+    Necessity: a valid file with three column (time cpu, memory) separate by comma \\
+    Produce: two list of all valid data (no blanc value or first 0 from cpu monitoring if present)
+    '''
+
     L_cpu = []
     L_mem = []
     try:
