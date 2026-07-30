@@ -9,6 +9,11 @@
   <arg name="min_particles" default=""/>
   <arg name="max_particles" default=""/>
 
+  <arg name="poll_period" default="0.1"/>
+  <arg name="save_to_csv" default="true"/>
+  <arg name="csv_file" default="monitor_"/> <!-- if save_to_csv is true, this is the file to save to-->
+  <arg name="source_list" default="[/mcmh_localizer]"/> <!-- list of topics to save to csv, includes all at 5 seconds after startup if empty -->
+
   <!-- Define result filename (without extension) -->
   <arg name="result_name" default=""/>
 
@@ -57,5 +62,13 @@
 
   <!-- Rosbag player with simulated clock -->
   <node pkg="rosbag" type="play" name="play_bag" args="--clock $(arg bag_file)" output="log"/>
+
+  <!-- CPU and memory monitor -->
+  <node pkg="cpu_monitor" name="cpu_monitor" type="monitor.py" output="log">
+    <param name="poll_period" value="$(arg poll_period)"/>
+    <param name="save_to_csv" value="$(arg save_to_csv)"/>
+    <param name="csv_file" value="$(arg results_dir)/$(arg name_ext)$(arg csv_file)$(arg result_name).txt"/>
+    <rosparam param="source_list" subst_value="True">$(arg source_list)</rosparam>
+  </node>
 
 </launch>
