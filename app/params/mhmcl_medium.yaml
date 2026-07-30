@@ -1,0 +1,36 @@
+# MHMCL medium profile
+# Best MHMCL params from tuning_results/explore_bin_fair_budget_plus.
+
+initialized: False
+use_sim_time: True
+init_particles: 750
+min_particles: 75
+max_particles: 1500
+headless: True
+
+meta_lambda: 0.72
+random_steps: 50
+
+alpha1: 0.16
+alpha2: 0.175
+alpha3: 0.18
+alpha4: 0.05
+
+alpha5: 0.415
+alpha6: 0.215
+alpha7: 0.412
+alpha8: 0.412
+
+kld_epsilon: 0.5
+kld_z: 2.326
+kld_bin_size_xy: 0.2
+kld_bin_size_theta: 0.17
+
+alpha_slow: 0.01
+alpha_fast: 0.4
+
+sigma_hit: 0.05
+z_hit: 0.9
+z_rand: 0.1
+max_range: 8.0
+step: 5

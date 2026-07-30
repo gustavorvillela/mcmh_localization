@@ -306,7 +306,7 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
     plt.figure(figsize=(8, 6))
     path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
-    stat_type = "Mean" if stat == "mean" else "Std Dev"
+    stat_type = "Mean +/- Std Dev" if stat == "mean" else "Std Dev"
      
     ylabel = f"{path_type} - {stat_type} {measure}"
     title = f"{path_type} RMSE {stat_type} vs Number of Particles - {scenario}"
@@ -319,27 +319,58 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
         particles = []
         stats = []
+        std_devs = []
         for particle_count in sorted(results.keys()):
             value = results[particle_count].get(f"{test}_{stat}")
             if value is None or np.isnan(value):
                 continue
             particles.append(particle_count)
             stats.append(value)
+            if stat == "mean":
+                std_value = results[particle_count].get(f"{test}_std")
+                if std_value is None or np.isnan(std_value):
+                    std_value = 0.0
+                std_devs.append(std_value)
 
         if not particles:
             continue
 
         style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-        plt.plot(
-            particles,
-            stats,
-            label=style['label'],
-            color=style['color'],
-            linestyle=style['linestyle'],
-            marker=style['marker'],
-            linewidth=2
-        )
+        if stat == "mean":
+            particles_arr = np.asarray(particles, dtype=float)
+            stats_arr = np.asarray(stats, dtype=float)
+            std_arr = np.asarray(std_devs, dtype=float)
+            lower = np.maximum(stats_arr - std_arr, 0.0)
+            upper = stats_arr + std_arr
+
+            plt.fill_between(
+                particles_arr,
+                lower,
+                upper,
+                color=style['color'],
+                alpha=0.18,
+                linewidth=0
+            )
+            plt.plot(
+                particles_arr,
+                stats_arr,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
+        else:
+            plt.plot(
+                particles,
+                stats,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
 
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
