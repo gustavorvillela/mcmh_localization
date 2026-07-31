@@ -452,13 +452,14 @@ class AMCMHLocalizer:
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
-        if self.use_adaptive:
+# Change order of both if?
         
-            if Neff < self.num_particles / 2.0 or self.last_odom is None:
+        
+        if Neff < self.num_particles / 2.0 or self.last_odom is None:
+            if self.use_adaptive:
                 self.resample_amcl_kld()
-        
-        else:
-            if Neff < self.num_particles/2 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
+
+            else:
                 self.resample_lvr()
         
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
