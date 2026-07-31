@@ -123,7 +123,8 @@ class AMCMHLocalizer:
         self.particles = self.initialize_particles(self.num_particles).astype(np.float32)
         self.particles_prop = np.copy(self.particles)
         self.particles_prev = np.copy(self.particles_prop)
-        self.meta_particles = np.copy(self.particles)
+# Never updated
+        #self.meta_particles = np.copy(self.particles)
         
         self.weights = np.ones(self.num_particles) / self.num_particles
         
@@ -136,12 +137,13 @@ class AMCMHLocalizer:
         # Equivalent decay factor
         self.meta_decay = np.exp(-self.meta_lambda)
 
+# Never used
         # Current recency multiplier
-        self.meta_time_weight = 1.0
+        #self.meta_time_weight = 1.0
 
-        self.meta_xy = self.meta_particles[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
-        self.meta_cos = np.cos(self.meta_particles[:, 2]).copy() * self.weights_pre
-        self.meta_sin = np.sin(self.meta_particles[:, 2]).copy() * self.weights_pre
+        self.meta_xy = self.particles[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
+        self.meta_cos = np.cos(self.particles[:, 2]).copy() * self.weights_pre
+        self.meta_sin = np.sin(self.particles[:, 2]).copy() * self.weights_pre
         
         self.meta_weights = self.weights_pre.copy()  # Initialize meta weights as zeros
         self.weights_viz = self.weights.copy()
@@ -232,13 +234,14 @@ class AMCMHLocalizer:
         ys = origin_y + (free_rows + 0.5) * resolution
         self.free_cells_coords = np.column_stack((xs, ys))
 
+# Never used
         # Save limits
-        self.limits = np.array([
-            origin_x,
-            origin_x + width * resolution,
-            origin_y,
-            origin_y + height * resolution
-        ])
+        # self.limits = np.array([
+        #     origin_x,
+        #     origin_x + width * resolution,
+        #     origin_y,
+        #     origin_y + height * resolution
+        # ])
 
         # Keep typed references for Numba calls (1D arrays)
         self.map_data = self.map_data.astype(np.int8)
@@ -444,7 +447,8 @@ class AMCMHLocalizer:
         
         self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
 
-        t = time.time()
+# Never used
+        #t = time.time()
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
@@ -460,7 +464,8 @@ class AMCMHLocalizer:
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
         #print(f"[DEBUG] Updated particles prev")
 
-        t = time.time()
+# Never used
+        #t = time.time()
         self.meta_weights = self.calculate_unorm_weights(self.particles_prev)  # Update meta weights for the next iteration
         self.weights_pre = self.meta_weights.copy()  # Update weights_pre to the new meta weights for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
 
@@ -474,7 +479,8 @@ class AMCMHLocalizer:
         #self.weights = self.calculate_weights(self.particles)
         self.weights = self.meta_weights.copy()  # Update self.weights to the new weights for visualization and any other use in the next iteration, so that it reflects the current scan update.
         self.publish_estimate(msg.header.stamp)
-        t = time.time()
+# Never used
+        #t = time.time()
         self.publish_particles(msg.header.stamp)
 
     def update_scans(self,scan):
@@ -889,6 +895,7 @@ class AMCMHLocalizer:
     # Publish
     #======================================================================
 
+# Is it useful here?
     def publish_particles(self, stamp=None):
 
         if self.headless:
@@ -989,17 +996,20 @@ class AMCMHLocalizer:
         # 1. MOVE: Apply Odometry first
         # This keeps particles_prev and particles at the same size
         #print("[DEBUG] Sync callback triggered: moving particles with odometry...")
-        t = time.time()
+# Not used
+        #t = time.time()
         self.move_particles(odom_msg) 
         #print(f"[DEBUG] Particle movement took {time.time() - t:.4f} seconds")
         
         # 2. WEIGHT: Use the LiDAR scan to update weights
         #print("[DEBUG] Updating weights with LiDAR scan...")
-        t = time.time()
+# Not used
+        #t = time.time()
         self.update_scans(scan_msg)
         #print(f"[DEBUG] Scan processing took {time.time() - t:.4f} seconds")
 
-        t = time.time()
+# Not used
+        #t = time.time()
         if not self.use_adaptive:
             weights_pre, weights_post = self.update_weights(self.particles_prev, self.particles)
         else:
@@ -1019,7 +1029,8 @@ class AMCMHLocalizer:
         self.Neff_pub.publish(Float64(Neff))
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
-        t = time.time()
+# Not used
+        #t = time.time()
         if self.use_adaptive:
             self.update_acml_weights(weights)
             if Neff < self.num_particles / 1.0:
@@ -1032,10 +1043,12 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 
         # 5. PUBLISH
-        t = time.time()
+# Not used
+        #t = time.time()
         self.weights = self.calculate_weights(self.particles)  # Recalculate weights for the new particle set after resampling, to use in the visualization and estimate publication. This is important because resampling changes the particle set and we want the published weights to reflect the current particles.
 
-        t = time.time()
+# Not used
+        #t = time.time()
         self.acc_rate.publish(Float64(acc_rate))
         stamp = scan_msg.header.stamp if scan_msg.header.stamp != rospy.Time(0) else odom_msg.header.stamp
         self.publish_particles(stamp)
