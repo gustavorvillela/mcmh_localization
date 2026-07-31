@@ -150,8 +150,6 @@ class AMCMHLocalizer:
 
         self.last_odom = None
 
-        
-
         self.odom_topic = rospy.get_param('odom_topic', '/odom')
         self.scan_topic = rospy.get_param('scan_topic', '/scan')
         
@@ -167,7 +165,8 @@ class AMCMHLocalizer:
 
         # Publishers
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=10)
-        self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
+# Where is it used?
+        #self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
         self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=10)
         self.Neff_pub = rospy.Publisher('/effective_sample_size', Float64, queue_size=10)
         
@@ -176,7 +175,7 @@ class AMCMHLocalizer:
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
-        self.publish_particles()
+        #self.publish_particles()
         self.acc_rate.publish(Float64(1.0))
         self.Neff_pub.publish(Float64(self.num_particles))
         self._viz_count = 0
@@ -482,7 +481,7 @@ class AMCMHLocalizer:
         self.publish_estimate(msg.header.stamp)
 # Never used
         #t = time.time()
-        self.publish_particles(msg.header.stamp)
+        #self.publish_particles(msg.header.stamp)
 
     def update_scans(self,scan):
 
@@ -1052,7 +1051,7 @@ class AMCMHLocalizer:
         #t = time.time()
         self.acc_rate.publish(Float64(acc_rate))
         stamp = scan_msg.header.stamp if scan_msg.header.stamp != rospy.Time(0) else odom_msg.header.stamp
-        self.publish_particles(stamp)
+        #self.publish_particles(stamp)
         self.publish_estimate(stamp)
         #print(f"[DEBUG] Publishing took {time.time() - t:.4f} seconds")
 
