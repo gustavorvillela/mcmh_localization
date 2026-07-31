@@ -589,7 +589,7 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
 
     plt.title(title)
     plt.xlabel("Time (iteration)")
-    plt.ylabel("Effective Sample Size (number of particle)")
+    plt.ylabel("Effective Sample Size/number of particles (number of particle)")
 
     plot_path = os.path.join(plots_dir, f"{scenario}_ess_best.png")
     plotted = False
