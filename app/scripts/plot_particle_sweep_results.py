@@ -839,6 +839,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
 
     list_algo = [algo for algo in data_metrics[scenario]]
     list_particles = [particles for particles in data_metrics[scenario][list_algo[0]]]
+    list_particles.sort()
 
     for algo in list_algo :
         for particles in list_particles :
