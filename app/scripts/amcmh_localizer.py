@@ -363,10 +363,7 @@ class AMCMHLocalizer:
             self.z_short, self.z_max, self.lambda_short
         )
 
-        weights = np.exp(scores)  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
-
-        return weights
-
+        return np.exp(scores)  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
 
     def update_weights(self, particles_prev, particles_post):
 
@@ -415,13 +412,25 @@ class AMCMHLocalizer:
         # Degeneracy test is RELATIVE to the strongest particle, so it is
         # invariant to the absolute weight scale (the likelihood is now a
         # per-beam average, so weights are O(0.01..1), never ~1e-300).
-        weight_safe = self.meta_weights.copy()
-        max_w = np.max(weight_safe)
-        degenerate = weight_safe < 1e-12 * max(max_w, 1e-300)
-        weight_safe[degenerate] = 1e-12  # placeholder; these rows are overwritten below
+
+        # ==========================
+        # Final meta weights update
+        # ==========================
+        
+        if self.use_adaptive:
+        
+            self.update_acml_weights(self.meta_weights)
+        
+        else:
+            
+            self.weights = self.meta_weights/np.sum(self.meta_weights)  # Normalize meta weights to get the final weights for this scan, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
+
+        max_w = np.max(self.meta_weights)
+        degenerate = self.meta_weights < 1e-12 * max(max_w, 1e-300)
+        self.meta_weights[degenerate] = 1e-12  # placeholder; these rows are overwritten below
         #print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={max_w:.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
-        meta_xy =self.meta_xy / weight_safe[:, np.newaxis] # Compute mean x and y from weighted sum
+        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
 
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
@@ -434,20 +443,6 @@ class AMCMHLocalizer:
         self.particles = np.column_stack((meta_xy, meta_theta)).astype(np.float32)  # Final meta particles for this scan
         #print(f"[DEBUG] Meta particles after incorporating path history (before scan update): {self.meta_particles}")
         self.update_scans(msg)
-
-
-        # ==========================
-        # Final meta weights update
-        # ==========================
-        
-        if self.use_adaptive:
-        
-            self.update_acml_weights(self.meta_weights)
-        
-        else:
-            
-            weights = self.meta_weights/np.sum(self.meta_weights)  # Normalize meta weights to get the final weights for this scan, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
-            self.weights = weights
 
         # =======================
         # Publish and resampling
@@ -907,9 +902,7 @@ class AMCMHLocalizer:
         clear_marker.action = Marker.DELETEALL
         marker_array.markers.append(clear_marker)
 
-
-        weights = self.weights.copy()
-        norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+        norm_weights = (self.weights - self.weights.min()) / (self.weights.max() - self.weights.min() + 1e-6)
         #print(f"[DEBUG] Publishing {len(self.particles)} particles with normalized weights (min: {norm_weights.min():.4f}, max: {norm_weights.max():.4f})")
         marker_id =0
         now = stamp if stamp is not None and stamp != rospy.Time(0) else rospy.Time.now()
