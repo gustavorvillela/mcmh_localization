@@ -287,23 +287,23 @@ class AMCMHLocalizer:
         self.initialized = True
         rospy.loginfo(f"Initial pose received: {self.initial_pose}")
 
-    def wait_for_initial_pose(self, timeout=5.0):
-        """
-        Wait for the initial pose for a given time (in seconds).
-        If not received within the timeout, proceed with uniform initialization.
-        """
-        rospy.loginfo("Waiting for initial pose (max %.1fs)..." % timeout)
-        start_time = rospy.Time.now().to_sec()
-        rate = rospy.Rate(10)
+    # def wait_for_initial_pose(self, timeout=5.0):
+    #     """
+    #     Wait for the initial pose for a given time (in seconds).
+    #     If not received within the timeout, proceed with uniform initialization.
+    #     """
+    #     rospy.loginfo("Waiting for initial pose (max %.1fs)..." % timeout)
+    #     start_time = rospy.Time.now().to_sec()
+    #     rate = rospy.Rate(10)
 
-        while not rospy.is_shutdown():
-            if self.initialized:
-                rospy.loginfo("Initial pose received.")
-                break
-            if rospy.Time.now().to_sec() - start_time > timeout:
-                rospy.logwarn("Timeout: initial pose not received. Initializing uniformly.")
-                break
-            rate.sleep()
+    #     while not rospy.is_shutdown():
+    #         if self.initialized:
+    #             rospy.loginfo("Initial pose received.")
+    #             break
+    #         if rospy.Time.now().to_sec() - start_time > timeout:
+    #             rospy.logwarn("Timeout: initial pose not received. Initializing uniformly.")
+    #             break
+    #         rate.sleep()
 
 
     def get_yaw_from_quaternion(self, quat):
@@ -317,12 +317,12 @@ class AMCMHLocalizer:
         my = int((y - self.origin.y) / self.resolution)
         return mx, my
 
-    def is_valid_position(self, x, y):
-        mx, my = self.world_to_map(x, y)
-        if not (0 <= mx < self.width and 0 <= my < self.height):
-            return False
-        index = my * self.width + mx
-        return self.map_data[index] == 0
+    # def is_valid_position(self, x, y):
+    #     mx, my = self.world_to_map(x, y)
+    #     if not (0 <= mx < self.width and 0 <= my < self.height):
+    #         return False
+    #     index = my * self.width + mx
+    #     return self.map_data[index] == 0
 
     #======================================================================
     # Weights
@@ -456,14 +456,10 @@ class AMCMHLocalizer:
         
         self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
 
-# Never used
-        #t = time.time()
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
-# Change order of both if?
-        
-        
+
         if Neff < self.num_particles / 2.0 or self.last_odom is None:
             if self.use_adaptive:
                 self.resample_amcl_kld()
@@ -474,8 +470,6 @@ class AMCMHLocalizer:
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
         #print(f"[DEBUG] Updated particles prev")
 
-# Never used
-        #t = time.time()
         self.meta_weights = self.calculate_unorm_weights(self.particles_prev)  # Update meta weights for the next iteration
         self.weights_pre = self.meta_weights.copy()  # Update weights_pre to the new meta weights for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
 
@@ -483,15 +477,14 @@ class AMCMHLocalizer:
         self.meta_cos = np.cos(self.particles_prev[:, 2]) * self.meta_weights  # Update meta cos for the next iteration
         self.meta_sin = np.sin(self.particles_prev[:, 2]) * self.meta_weights  # Update meta sin for the next iteration
 
+        #self.weights = self.calculate_weights(self.particles)
+        self.weights = self.meta_weights.copy()  # Update self.weights to the new weights for visualization and any other use in the next iteration, so that it reflects the current scan update.
         self.accept_odom = True
         self.updated_dist = True
         # rospy.loginfo("Publishing particles")
-        #self.weights = self.calculate_weights(self.particles)
-        self.weights = self.meta_weights.copy()  # Update self.weights to the new weights for visualization and any other use in the next iteration, so that it reflects the current scan update.
         self.publish_estimate(msg.header.stamp)
-# Never used
-        #t = time.time()
-        #self.publish_particles(msg.header.stamp)
+        if not self.headless :
+            self.publish_particles(msg.header.stamp)
 
     def update_scans(self,scan):
 
@@ -589,12 +582,6 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
         
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update.")
-        
-        #self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration
-
-        #self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
-         
-        self.odom_count += 1
 
     def get_delta_odom(self,msg):
 
@@ -660,25 +647,25 @@ class AMCMHLocalizer:
         return rot1, trans, rot2
 
 
-    def transition_probability(self):
-        #print(f"[DEBUG] Delta for transition probability: {self.delta}")
-        if self.delta == (0.0, 0.0, 0.0):
-            return np.ones(len(self.particles)), np.ones(len(self.particles_prev))
+    # def transition_probability(self):
+    #     #print(f"[DEBUG] Delta for transition probability: {self.delta}")
+    #     if self.delta == (0.0, 0.0, 0.0):
+    #         return np.ones(len(self.particles)), np.ones(len(self.particles_prev))
 
-        trans_forward = motion_model_odometry_parallel(self.particles_prev,self.particles,
-                                                       np.array(self.delta), self.alpha)
+    #     trans_forward = motion_model_odometry_parallel(self.particles_prev,self.particles,
+    #                                                    np.array(self.delta), self.alpha)
         
-        dx, dy, dtheta = self.delta
-        backward_delta = np.array([
-            -dx * np.cos(dtheta) - dy * np.sin(dtheta),
-            dx * np.sin(dtheta) - dy * np.cos(dtheta),
-            -dtheta
-        ])
+    #     dx, dy, dtheta = self.delta
+    #     backward_delta = np.array([
+    #         -dx * np.cos(dtheta) - dy * np.sin(dtheta),
+    #         dx * np.sin(dtheta) - dy * np.cos(dtheta),
+    #         -dtheta
+    #     ])
         
-        trans_backward = motion_model_odometry_parallel(self.particles,self.particles_prev,
-                                                        backward_delta, self.alpha)
+    #     trans_backward = motion_model_odometry_parallel(self.particles,self.particles_prev,
+    #                                                     backward_delta, self.alpha)
 
-        return trans_forward, trans_backward
+    #     return trans_forward, trans_backward
 
     
     def mh_random_walk(self, particles, weights):
@@ -738,42 +725,42 @@ class AMCMHLocalizer:
     # Resample
     #======================================================================
 
-    def resample_amcl_simple(self):
+    # def resample_amcl_simple(self):
 
-        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+    #     p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
-        N = self.num_particles
-        N_random = int(p_random * N)
-        N_resampled = N - N_random
+    #     N = self.num_particles
+    #     N_random = int(p_random * N)
+    #     N_resampled = N - N_random
 
-        resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
+    #     resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
 
-        random_particles = generate_valid_particles(N_random,self.map_data,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
+    #     random_particles = generate_valid_particles(N_random,self.map_data,
+    #                                                 self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
         
-        self.particles = np.vstack((resampled_particles,random_particles))
-        self.weights   = np.full(N,1/N)
+    #     self.particles = np.vstack((resampled_particles,random_particles))
+    #     self.weights   = np.full(N,1/N)
 
-    def resample_amcl_lvr(self):
+    # def resample_amcl_lvr(self):
 
-        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+    #     p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
-        N = self.num_particles
-        resampled_particles = np.zeros_like(self.particles)
+    #     N = self.num_particles
+    #     resampled_particles = np.zeros_like(self.particles)
 
-        resampled_index, _ = low_variance_resample_numba(np.arange(N), self.weights, N)
-        resampled_index = resampled_index.astype(np.int64)
+    #     resampled_index, _ = low_variance_resample_numba(np.arange(N), self.weights, N)
+    #     resampled_index = resampled_index.astype(np.int64)
 
-        for i in range(N):
-            if np.random.rand() < p_random:
-                resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
+    #     for i in range(N):
+    #         if np.random.rand() < p_random:
+    #             resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
+    #                                                 self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
-            else:
-                resampled_particles[i,:] = self.particles[resampled_index[i],:]
+    #         else:
+    #             resampled_particles[i,:] = self.particles[resampled_index[i],:]
         
-        self.particles = resampled_particles.copy()
-        self.weights   = np.full(N,1/N)
+    #     self.particles = resampled_particles.copy()
+    #     self.weights   = np.full(N,1/N)
 
 
     def resample_simple(self):
@@ -905,14 +892,13 @@ class AMCMHLocalizer:
     # Publish
     #======================================================================
 
-# Is it useful here?
     def publish_particles(self, stamp=None):
 
         if self.headless:
             return
         
         self._viz_count = getattr(self, '_viz_count', 0) + 1
-        if self._viz_count % 1:        # publish on every 3rd call
+        if self._viz_count % 1:        # publish on every x-th call
             return
 
         marker_array = MarkerArray()
@@ -982,6 +968,7 @@ class AMCMHLocalizer:
         pose.pose.pose.orientation.z = np.sin(mean_theta / 2.0)
         pose.pose.pose.orientation.w = np.cos(mean_theta / 2.0)
 
+# Why?
         # Preenche a matriz de covariância (6x6 flatten)
         # We use only the dimensions x, y, theta -> [0,0], [1,1], [5,5]
         cov_flat = np.zeros(36)
@@ -1006,41 +993,31 @@ class AMCMHLocalizer:
         # 1. MOVE: Apply Odometry first
         # This keeps particles_prev and particles at the same size
         #print("[DEBUG] Sync callback triggered: moving particles with odometry...")
-# Not used
-        #t = time.time()
         self.move_particles(odom_msg) 
         #print(f"[DEBUG] Particle movement took {time.time() - t:.4f} seconds")
         
         # 2. WEIGHT: Use the LiDAR scan to update weights
         #print("[DEBUG] Updating weights with LiDAR scan...")
-# Not used
-        #t = time.time()
         self.update_scans(scan_msg)
         #print(f"[DEBUG] Scan processing took {time.time() - t:.4f} seconds")
 
-# Not used
-        #t = time.time()
         if not self.use_adaptive:
-            weights_pre, weights_post = self.update_weights(self.particles_prev, self.particles)
+            weights_pre, weights = self.update_weights(self.particles_prev, self.particles)
         else:
             weights_pre  = self.calculate_unorm_weights(self.particles_prev)
-            weights_post = self.calculate_unorm_weights(self.particles)
+            weights = self.calculate_unorm_weights(self.particles)
         #print(f"[DEBUG] Weight update took {time.time() - t:.4f} seconds")
-        
+
         # 3. MH STEP: Perform MH resampling
+        acc_rate = 0.0
         if self.use_mh:
-            weights, self.particles, acc_rate = self.update_particles_mh(weights_pre, weights_post)
-        else:
-            weights = weights_post
-            acc_rate = 0.0
+            weights, self.particles, acc_rate = self.update_particles_mh(weights_pre, weights)
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
-# Not used
-        #t = time.time()
         if self.use_adaptive:
             self.update_acml_weights(weights)
             if Neff < self.num_particles / 1.0:
@@ -1053,15 +1030,12 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 
         # 5. PUBLISH
-# Not used
-        #t = time.time()
         self.weights = self.calculate_weights(self.particles)  # Recalculate weights for the new particle set after resampling, to use in the visualization and estimate publication. This is important because resampling changes the particle set and we want the published weights to reflect the current particles.
 
-# Not used
-        #t = time.time()
         self.acc_rate.publish(Float64(acc_rate))
         stamp = scan_msg.header.stamp if scan_msg.header.stamp != rospy.Time(0) else odom_msg.header.stamp
-        #self.publish_particles(stamp)
+        if not self.headless :
+            self.publish_particles(stamp)
         self.publish_estimate(stamp)
         #print(f"[DEBUG] Publishing took {time.time() - t:.4f} seconds")
 
