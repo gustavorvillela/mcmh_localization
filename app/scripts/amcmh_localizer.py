@@ -26,6 +26,9 @@ class AMCMHLocalizer:
         self.use_adaptive = 'AMCL' in self.mode  # AMCL or MHAMCL use KLD
         self.meta = '3' in self.mode  # 3MCL or Meta-MH-MCL uses path history in MH step
 
+        if self.meta :
+            self.use_mh = True
+
         rospy.loginfo(f"Localization mode: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive},  Meta: {self.meta}")
 
 
@@ -37,30 +40,34 @@ class AMCMHLocalizer:
                                 rospy.get_param('alpha3', 0.2),
                                 rospy.get_param('alpha4', 0.2)
                             ], dtype=np.float32) #do not touch
-        
-        self.alpha_rw = np.array([
-                                rospy.get_param('alpha5', 0.02),  # additional noise for in-place rotation
-                                rospy.get_param('alpha6', 0.04),  # additional noise for in-place translation
-                                rospy.get_param('alpha7', 0.01),  # additional noise for small forward movement
-                                rospy.get_param('alpha8', 0.01)   # additional noise for small backward movement
-                            ], dtype=np.float32) # do not touch, only used for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
-        self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # slow learning rate for AMCL
-        self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # fast learning rate for AMCL
+
+        if self.meta :
+            self.alpha_rw = np.array([
+                                    rospy.get_param('alpha5', 0.02),  # additional noise for in-place rotation
+                                    rospy.get_param('alpha6', 0.04),  # additional noise for in-place translation
+                                    rospy.get_param('alpha7', 0.01),  # additional noise for small forward movement
+                                    rospy.get_param('alpha8', 0.01)   # additional noise for small backward movement
+                                ], dtype=np.float32) # do not touch, only used for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
+
+        if self.use_adaptive :
+            self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # slow learning rate for AMCL
+            self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # fast learning rate for AMCL
 
         self.dt = 0.02 # scan time interval
 
         self.delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # (rot1, trans, rot2)
-        self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
+        #self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
         self.odom_eps = 1e-4  # Threshold to consider translation as zero for in-place rotation handling
         self.accept_odom = False
 
         # Parâmetros KLD
-        self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
-        self.kld_delta = rospy.get_param('kld_delta', 0.99)
-        self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # meters
-        self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radians
-        self.kld_n_max = self.num_particles
-        self.kld_z = rospy.get_param('kld_z', 2)
+        if self.use_adaptive :
+            self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
+            self.kld_delta = rospy.get_param('kld_delta', 0.99)
+            self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # meters
+            self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radians
+            self.kld_n_max = self.num_particles
+            self.kld_z = rospy.get_param('kld_z', 2)
 
         self.initial_pose = None  # Will store the initial pose [x, y, theta]
         self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Initial covariance (x, y in meters, theta in rad)
@@ -76,10 +83,13 @@ class AMCMHLocalizer:
         self.step = rospy.get_param('step', 1)  # Use every 'step' LiDAR measurements to speed up
         self.headless = rospy.get_param('headless', False)  # If True, do not publish markers for visualization
 
-        self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
-        self.Nr = rospy.get_param("random_steps", 10)  # Number of random walk steps per odometry update
-        self.Neff = self.num_particles  # Initialize effective sample size
+        if self.meta : # if 3MCL
+            self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
 
+        if self.use_mh : # if use MH
+            self.Nr = rospy.get_param("random_steps", 10)  # Number of random walk steps per odometry update
+
+        self.Neff = self.num_particles  # Initialize effective sample size
 
         self.timeout = 10
 
@@ -107,10 +117,11 @@ class AMCMHLocalizer:
             rospy.loginfo("Initializing particles uniformly on the map")
 
         #AMCL
-        self.min_particles = rospy.get_param('min_particles', self.num_particles/2)
-        self.max_particles = rospy.get_param('max_particles', self.num_particles*2)
-        self.w_slow = 1/self.num_particles
-        self.w_fast = 1/self.num_particles
+        if self.use_adaptive : # if AMCL
+            self.min_particles = rospy.get_param('min_particles', self.num_particles/2)
+            self.max_particles = rospy.get_param('max_particles', self.num_particles*2)
+            self.w_slow = 1/self.num_particles
+            self.w_fast = 1/self.num_particles
  
         # Load map
         
@@ -121,32 +132,32 @@ class AMCMHLocalizer:
 
         # Initialize particles
         self.particles = self.initialize_particles(self.num_particles).astype(np.float32)
-        self.particles_prop = np.copy(self.particles)
-        self.particles_prev = np.copy(self.particles_prop)
-# Never updated
-        #self.meta_particles = np.copy(self.particles)
+        #self.particles_prop = np.copy(self.particles)
+        self.particles_prev = np.copy(self.particles)
         
         self.weights = np.ones(self.num_particles) / self.num_particles
         
         self.weights_pre = self.weights.copy()
         self.scan_ranges = None
         self.last_scan = None
-        self.odom_count = 0
-        # Exponential recency weighting for Meta-MH
 
-        # Equivalent decay factor
-        self.meta_decay = np.exp(-self.meta_lambda)
+        if self.meta : # if 3MCL
+            # Exponential recency weighting for Meta-MH
+            # Equivalent decay factor
+            self.meta_decay = np.exp(-self.meta_lambda)
 
 # Never used
-        # Current recency multiplier
-        #self.meta_time_weight = 1.0
+            # Current recency multiplier
+            self.meta_time_weight = 1.0
 
-        self.meta_xy = self.particles[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
-        self.meta_cos = np.cos(self.particles[:, 2]).copy() * self.weights_pre
-        self.meta_sin = np.sin(self.particles[:, 2]).copy() * self.weights_pre
-        
-        self.meta_weights = self.weights_pre.copy()  # Initialize meta weights as zeros
-        self.weights_viz = self.weights.copy()
+            self.meta_xy = self.particles_prev[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
+            self.meta_cos = np.cos(self.particles_prev[:, 2]).copy() * self.weights_pre
+            self.meta_sin = np.sin(self.particles_prev[:, 2]).copy() * self.weights_pre
+            
+            self.meta_weights = self.weights_pre.copy()  # Initialize meta weights as zeros
+        #self.weights_viz = self.weights.copy()
+
+        # if self.use_mh : # if use MH
 
         self.last_odom = None
 
@@ -154,28 +165,27 @@ class AMCMHLocalizer:
         self.scan_topic = rospy.get_param('scan_topic', '/scan')
         
         # Subscribers
-        if not self.meta:
+        if not self.meta: # if not 3MCL
             scan_sub = message_filters.Subscriber(self.scan_topic, LaserScan)
             odom_sub = message_filters.Subscriber(self.odom_topic, Odometry)
             ts = message_filters.ApproximateTimeSynchronizer([scan_sub, odom_sub], queue_size=10, slop=0.1)
             ts.registerCallback(self.sync_callback)
-        else:
+        else: # if 3MCL
             rospy.Subscriber(self.scan_topic, LaserScan, self.lidar_callback, queue_size=10, buff_size=2**24)
             rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=10, buff_size=2**24)
 
         # Publishers
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=10)
-# Where is it used?
-        #self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
+        self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
         self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=10)
         self.Neff_pub = rospy.Publisher('/effective_sample_size', Float64, queue_size=10)
-        
+
         # TF
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
-        
-        #self.publish_particles()
+
+        self.publish_particles()
         self.acc_rate.publish(Float64(1.0))
         self.Neff_pub.publish(Float64(self.num_particles))
         self._viz_count = 0
