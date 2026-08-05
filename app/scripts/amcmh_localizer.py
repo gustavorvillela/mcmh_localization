@@ -498,7 +498,7 @@ class AMCMHLocalizer:
         if particles_prev is None:
             particles_prev = self.particles_prev.copy()
         if particles_post is None:
-            particles_post = self.particles_prop.copy()
+            particles_post = self.particles.copy()
 
         mh_particles, weights, acc_rate = mh_resampling(particles_prev,particles_post,weights_post,weights_pre)
         
@@ -519,29 +519,28 @@ class AMCMHLocalizer:
         #rospy.loginfo("Moving particles with odometry using particle prev")
         self.do_mh_random_walk = False  
         self.updated_dist = False  # Flag to indicate that we have not yet updated the meta distribution with the new odometry, so we should not perform the MH random walk in the lidar callback until we have done so, to ensure that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
-        self.delta, current_odom = self.get_delta_odom(msg)
-        self.last_odom = current_odom  
+        self.delta, self.last_odom = self.get_delta_odom(msg)
 
         # apply motion model and update particles 
         # mh particles updated here and particles (meta-particles in 3MCL) in the lidar callback 
         # after processing the scan with the new path history
         #print(f"[DEBUG] Applying motion model to {len(self.particles_prev)} particles with delta")
-        self.particles_prop, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
+        self.particles, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
                                                           self.map_data, self.resolution,
                                                           self.origin_np[0], self.origin_np[1],
                                                           self.width,self.height)
   
         # compute weights for particles before and after motion to use in MH step.
         #print(f"[DEBUG] Calculating weights for MH step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
-        self.weights_post = self.calculate_unorm_weights(self.particles_prop)
+        weights_post = self.calculate_unorm_weights(self.particles)
 
 
         # MH step to decide which particles to keep for the next iteration, with update on meta set
         # being made on lidar callback after processing the new scan.
 
         #print(f"[DEBUG] Performing MH resampling step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
-        mh_weights, mh_particles, acc_rate = self.update_particles_mh(self.weights_pre, self.weights_post,
-                                                               self.particles_prev, self.particles_prop)
+        mh_weights, mh_particles, acc_rate = self.update_particles_mh(self.weights_pre, weights_post,
+                                                               self.particles_prev, self.particles)
 
         mh_xy = mh_particles[:, :2]
         mh_cos = np.cos(mh_particles[:, 2])
@@ -607,17 +606,15 @@ class AMCMHLocalizer:
         return particles_prop
 
     def move_particles(self,msg):
+        self.particles_prev = self.particles.copy()
 
         self.delta, current_odom = self.get_delta_odom(msg)
             
-        self.particles_prop = self.update_particle_set(self.delta)
+        self.particles = self.update_particle_set(self.delta)
         
-        # rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
+        #rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
         #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
         #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
-        self.particles_prev = self.particles.copy()
-        self.particles = self.particles_prop.copy()
-
                 
         self.last_odom = current_odom
 
