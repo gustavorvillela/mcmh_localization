@@ -532,16 +532,25 @@ def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-            sm.qqplot_2samples(gt_u, est_u,
-                line="45",
-                xlabel="Ground true",
-                ylabel="Estimated",
-                ax=ax[i, j]
-            )
-            ax[i, j].set_title(f"{style['label']} {particles}p {varr}")
-            ax[i, j].grid(True, linestyle='--', alpha=0.4)
-            j += 1
-
+            if nb_algo != 1:
+                sm.qqplot_2samples(gt_u, est_u,
+                    line="45",
+                    xlabel="Ground true",
+                    ylabel="Estimated", 
+                        ax=ax[i, j]
+                )
+                ax[i, j].set_title(f"{style['label']} {particles}p {varr}")
+                ax[i, j].grid(True, linestyle='--', alpha=0.4)
+                j += 1
+            else:
+                sm.qqplot_2samples(gt_u, est_u,
+                    line="45",
+                    xlabel="Ground true",
+                    ylabel="Estimated", 
+                        ax=ax[i]
+                )
+                ax[i].set_title(f"{style['label']} {particles}p {varr}")
+                ax[i].grid(True, linestyle='--', alpha=0.4)
         i += 1
 
     fig.suptitle(title)
