@@ -154,7 +154,7 @@ class AMCMHLocalizer:
             self.meta_cos = np.cos(self.particles_prev[:, 2]).copy() * self.weights_pre
             self.meta_sin = np.sin(self.particles_prev[:, 2]).copy() * self.weights_pre
             
-            self.meta_weights = self.weights_pre.copy()  # Initialize meta weights as zeros
+            self.meta_weights = self.weights_pre#.copy()  # Initialize meta weights as zeros
         #self.weights_viz = self.weights.copy()
 
         # if self.use_mh : # if use MH
@@ -496,9 +496,9 @@ class AMCMHLocalizer:
     def update_particles_mh(self,weights_pre, weights_post, particles_prev=None, particles_post=None):
 
         if particles_prev is None:
-            particles_prev = self.particles_prev.copy()
+            particles_prev = self.particles_prev
         if particles_post is None:
-            particles_post = self.particles.copy()
+            particles_post = self.particles
 
         mh_particles, weights, acc_rate = mh_resampling(particles_prev,particles_post,weights_post,weights_pre)
         
