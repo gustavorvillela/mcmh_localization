@@ -26,6 +26,9 @@ class AMCMHLocalizer:
         self.use_adaptive = 'AMCL' in self.mode  # AMCL or MHAMCL use KLD
         self.meta = '3' in self.mode  # 3MCL or Meta-MH-MCL uses path history in MH step
 
+        if self.meta :
+            self.use_mh = True
+
         rospy.loginfo(f"Localization mode: {self.mode} | MH: {self.use_mh}, Augmented: {self.use_adaptive},  Meta: {self.meta}")
 
 
@@ -37,30 +40,34 @@ class AMCMHLocalizer:
                                 rospy.get_param('alpha3', 0.2),
                                 rospy.get_param('alpha4', 0.2)
                             ], dtype=np.float32) #do not touch
-        
-        self.alpha_rw = np.array([
-                                rospy.get_param('alpha5', 0.02),  # additional noise for in-place rotation
-                                rospy.get_param('alpha6', 0.04),  # additional noise for in-place translation
-                                rospy.get_param('alpha7', 0.01),  # additional noise for small forward movement
-                                rospy.get_param('alpha8', 0.01)   # additional noise for small backward movement
-                            ], dtype=np.float32) # do not touch, only used for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
-        self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # slow learning rate for AMCL
-        self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # fast learning rate for AMCL
+
+        if self.meta :
+            self.alpha_rw = np.array([
+                                    rospy.get_param('alpha5', 0.02),  # additional noise for in-place rotation
+                                    rospy.get_param('alpha6', 0.04),  # additional noise for in-place translation
+                                    rospy.get_param('alpha7', 0.01),  # additional noise for small forward movement
+                                    rospy.get_param('alpha8', 0.01)   # additional noise for small backward movement
+                                ], dtype=np.float32) # do not touch, only used for the random walk step in 3MCL/Augmented-3MCL to encourage exploration and prevent particle deprivation, especially in the early stages of localization or when the robot is lost. Tune these based on your environment and robot's motion characteristics.
+
+        if self.use_adaptive :
+            self.alpha_slow = rospy.get_param('alpha_slow', 0.01) # slow learning rate for AMCL
+            self.alpha_fast = rospy.get_param('alpha_fast', 0.1)  # fast learning rate for AMCL
 
         self.dt = 0.02 # scan time interval
 
         self.delta = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # (rot1, trans, rot2)
-        self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
+        #self.delta_path = np.empty((0, 3), dtype=np.float32)      # delta history for Meta-MH-MCL
         self.odom_eps = 1e-4  # Threshold to consider translation as zero for in-place rotation handling
         self.accept_odom = False
 
         # Parâmetros KLD
-        self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
-        self.kld_delta = rospy.get_param('kld_delta', 0.99)
-        self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # meters
-        self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radians
-        self.kld_n_max = self.num_particles
-        self.kld_z = rospy.get_param('kld_z', 2)
+        if self.use_adaptive :
+            self.kld_epsilon = rospy.get_param('kld_epsilon', 0.025)
+            self.kld_delta = rospy.get_param('kld_delta', 0.99)
+            self.kld_bin_size_xy = rospy.get_param('kld_bin_size_xy', 0.1)  # meters
+            self.kld_bin_size_theta = rospy.get_param('kld_bin_size_theta', np.deg2rad(10))  # radians
+            self.kld_n_max = self.num_particles
+            self.kld_z = rospy.get_param('kld_z', 2)
 
         self.initial_pose = None  # Will store the initial pose [x, y, theta]
         self.initial_cov = np.diag([0.05, 0.05, 0.1])  # Initial covariance (x, y in meters, theta in rad)
@@ -76,10 +83,13 @@ class AMCMHLocalizer:
         self.step = rospy.get_param('step', 1)  # Use every 'step' LiDAR measurements to speed up
         self.headless = rospy.get_param('headless', False)  # If True, do not publish markers for visualization
 
-        self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
-        self.Nr = rospy.get_param("random_steps", 10)  # Number of random walk steps per odometry update
-        self.Neff = self.num_particles  # Initialize effective sample size
+        if self.meta : # if 3MCL
+            self.meta_lambda = rospy.get_param("meta_lambda", 0.85)
 
+        if self.use_mh : # if use MH
+            self.Nr = rospy.get_param("random_steps", 10)  # Number of random walk steps per odometry update
+
+        self.Neff = self.num_particles  # Initialize effective sample size
 
         self.timeout = 10
 
@@ -107,10 +117,11 @@ class AMCMHLocalizer:
             rospy.loginfo("Initializing particles uniformly on the map")
 
         #AMCL
-        self.min_particles = rospy.get_param('min_particles', self.num_particles/2)
-        self.max_particles = rospy.get_param('max_particles', self.num_particles*2)
-        self.w_slow = 1/self.num_particles
-        self.w_fast = 1/self.num_particles
+        if self.use_adaptive : # if AMCL
+            self.min_particles = rospy.get_param('min_particles', self.num_particles/2)
+            self.max_particles = rospy.get_param('max_particles', self.num_particles*2)
+            self.w_slow = 1/self.num_particles
+            self.w_fast = 1/self.num_particles
  
         # Load map
         
@@ -121,45 +132,45 @@ class AMCMHLocalizer:
 
         # Initialize particles
         self.particles = self.initialize_particles(self.num_particles).astype(np.float32)
-        self.particles_prop = np.copy(self.particles)
-        self.particles_prev = np.copy(self.particles_prop)
-        self.meta_particles = np.copy(self.particles)
+        #self.particles_prop = np.copy(self.particles)
+        self.particles_prev = np.copy(self.particles)
         
         self.weights = np.ones(self.num_particles) / self.num_particles
         
         self.weights_pre = self.weights.copy()
         self.scan_ranges = None
         self.last_scan = None
-        self.odom_count = 0
-        # Exponential recency weighting for Meta-MH
 
-        # Equivalent decay factor
-        self.meta_decay = np.exp(-self.meta_lambda)
+        if self.meta : # if 3MCL
+            # Exponential recency weighting for Meta-MH
+            # Equivalent decay factor
+            self.meta_decay = np.exp(-self.meta_lambda)
 
-        # Current recency multiplier
-        self.meta_time_weight = 1.0
+# Never used
+            # Current recency multiplier
+            self.meta_time_weight = 1.0
 
-        self.meta_xy = self.meta_particles[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
-        self.meta_cos = np.cos(self.meta_particles[:, 2]).copy() * self.weights_pre
-        self.meta_sin = np.sin(self.meta_particles[:, 2]).copy() * self.weights_pre
-        
-        self.meta_weights = self.weights_pre.copy()  # Initialize meta weights as zeros
-        self.weights_viz = self.weights.copy()
+            self.meta_xy = self.particles_prev[:, :2].copy() * self.weights_pre.copy()[:, np.newaxis]
+            self.meta_cos = np.cos(self.particles_prev[:, 2]).copy() * self.weights_pre
+            self.meta_sin = np.sin(self.particles_prev[:, 2]).copy() * self.weights_pre
+            
+            self.meta_weights = self.weights_pre#.copy()  # Initialize meta weights as zeros
+        #self.weights_viz = self.weights.copy()
+
+        # if self.use_mh : # if use MH
 
         self.last_odom = None
-
-        
 
         self.odom_topic = rospy.get_param('odom_topic', '/odom')
         self.scan_topic = rospy.get_param('scan_topic', '/scan')
         
         # Subscribers
-        if not self.meta:
+        if not self.meta: # if not 3MCL
             scan_sub = message_filters.Subscriber(self.scan_topic, LaserScan)
             odom_sub = message_filters.Subscriber(self.odom_topic, Odometry)
             ts = message_filters.ApproximateTimeSynchronizer([scan_sub, odom_sub], queue_size=10, slop=0.1)
             ts.registerCallback(self.sync_callback)
-        else:
+        else: # if 3MCL
             rospy.Subscriber(self.scan_topic, LaserScan, self.lidar_callback, queue_size=10, buff_size=2**24)
             rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=10, buff_size=2**24)
 
@@ -168,12 +179,12 @@ class AMCMHLocalizer:
         self.marker_pub = rospy.Publisher('/mcmh_particles', MarkerArray, queue_size=10)
         self.acc_rate = rospy.Publisher('/mh_rate', Float64, queue_size=10)
         self.Neff_pub = rospy.Publisher('/effective_sample_size', Float64, queue_size=10)
-        
+
         # TF
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
-        
+
         self.publish_particles()
         self.acc_rate.publish(Float64(1.0))
         self.Neff_pub.publish(Float64(self.num_particles))
@@ -232,13 +243,14 @@ class AMCMHLocalizer:
         ys = origin_y + (free_rows + 0.5) * resolution
         self.free_cells_coords = np.column_stack((xs, ys))
 
+# Never used
         # Save limits
-        self.limits = np.array([
-            origin_x,
-            origin_x + width * resolution,
-            origin_y,
-            origin_y + height * resolution
-        ])
+        # self.limits = np.array([
+        #     origin_x,
+        #     origin_x + width * resolution,
+        #     origin_y,
+        #     origin_y + height * resolution
+        # ])
 
         # Keep typed references for Numba calls (1D arrays)
         self.map_data = self.map_data.astype(np.int8)
@@ -275,23 +287,23 @@ class AMCMHLocalizer:
         self.initialized = True
         rospy.loginfo(f"Initial pose received: {self.initial_pose}")
 
-    def wait_for_initial_pose(self, timeout=5.0):
-        """
-        Wait for the initial pose for a given time (in seconds).
-        If not received within the timeout, proceed with uniform initialization.
-        """
-        rospy.loginfo("Waiting for initial pose (max %.1fs)..." % timeout)
-        start_time = rospy.Time.now().to_sec()
-        rate = rospy.Rate(10)
+    # def wait_for_initial_pose(self, timeout=5.0):
+    #     """
+    #     Wait for the initial pose for a given time (in seconds).
+    #     If not received within the timeout, proceed with uniform initialization.
+    #     """
+    #     rospy.loginfo("Waiting for initial pose (max %.1fs)..." % timeout)
+    #     start_time = rospy.Time.now().to_sec()
+    #     rate = rospy.Rate(10)
 
-        while not rospy.is_shutdown():
-            if self.initialized:
-                rospy.loginfo("Initial pose received.")
-                break
-            if rospy.Time.now().to_sec() - start_time > timeout:
-                rospy.logwarn("Timeout: initial pose not received. Initializing uniformly.")
-                break
-            rate.sleep()
+    #     while not rospy.is_shutdown():
+    #         if self.initialized:
+    #             rospy.loginfo("Initial pose received.")
+    #             break
+    #         if rospy.Time.now().to_sec() - start_time > timeout:
+    #             rospy.logwarn("Timeout: initial pose not received. Initializing uniformly.")
+    #             break
+    #         rate.sleep()
 
 
     def get_yaw_from_quaternion(self, quat):
@@ -305,12 +317,12 @@ class AMCMHLocalizer:
         my = int((y - self.origin.y) / self.resolution)
         return mx, my
 
-    def is_valid_position(self, x, y):
-        mx, my = self.world_to_map(x, y)
-        if not (0 <= mx < self.width and 0 <= my < self.height):
-            return False
-        index = my * self.width + mx
-        return self.map_data[index] == 0
+    # def is_valid_position(self, x, y):
+    #     mx, my = self.world_to_map(x, y)
+    #     if not (0 <= mx < self.width and 0 <= my < self.height):
+    #         return False
+    #     index = my * self.width + mx
+    #     return self.map_data[index] == 0
 
     #======================================================================
     # Weights
@@ -351,10 +363,7 @@ class AMCMHLocalizer:
             self.z_short, self.z_max, self.lambda_short
         )
 
-        weights = np.exp(scores)  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
-
-        return weights
-
+        return np.exp(scores)  # Subtract max for numerical stability, but do NOT normalize to sum to 1, as we want to keep the unnormalized weights for the meta distribution update in Meta-MH-MCL.
 
     def update_weights(self, particles_prev, particles_post):
 
@@ -403,13 +412,25 @@ class AMCMHLocalizer:
         # Degeneracy test is RELATIVE to the strongest particle, so it is
         # invariant to the absolute weight scale (the likelihood is now a
         # per-beam average, so weights are O(0.01..1), never ~1e-300).
-        weight_safe = self.meta_weights.copy()
-        max_w = np.max(weight_safe)
-        degenerate = weight_safe < 1e-12 * max(max_w, 1e-300)
-        weight_safe[degenerate] = 1e-12  # placeholder; these rows are overwritten below
+
+        # ==========================
+        # Final meta weights update
+        # ==========================
+        
+        if self.use_adaptive:
+        
+            self.update_acml_weights(self.meta_weights)
+        
+        else:
+            
+            self.weights = self.meta_weights/np.sum(self.meta_weights)  # Normalize meta weights to get the final weights for this scan, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
+
+        max_w = np.max(self.meta_weights)
+        degenerate = self.meta_weights < 1e-12 * max(max_w, 1e-300)
+        self.meta_weights[degenerate] = 1e-12  # placeholder; these rows are overwritten below
         #print(f"[DEBUG] Meta weights: mean={np.mean(self.meta_weights):.6e}, max={max_w:.6e}, min={np.min(self.meta_weights):.6e}, degenerate={int(np.sum(degenerate))}")
         #print(f"[DEBUG] Meta weights before normalization: {self.meta_weights}")
-        meta_xy =self.meta_xy / weight_safe[:, np.newaxis] # Compute mean x and y from weighted sum
+        meta_xy =self.meta_xy / self.meta_weights[:, np.newaxis] # Compute mean x and y from weighted sum
 
         meta_theta = np.arctan2(self.meta_sin, self.meta_cos)  # Compute mean angle from weighted sin and cos
 
@@ -423,20 +444,6 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Meta particles after incorporating path history (before scan update): {self.meta_particles}")
         self.update_scans(msg)
 
-
-        # ==========================
-        # Final meta weights update
-        # ==========================
-        
-        if self.use_adaptive:
-        
-            self.update_acml_weights(self.meta_weights)
-        
-        else:
-            
-            weights = self.meta_weights/np.sum(self.meta_weights)  # Normalize meta weights to get the final weights for this scan, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
-            self.weights = weights
-
         # =======================
         # Publish and resampling
         # =======================
@@ -444,23 +451,20 @@ class AMCMHLocalizer:
         
         self.num_particles = len(self.particles)  # Update number of particles for the next iteration, in case it changed due to KLD resampling
 
-        t = time.time()
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
-        if self.use_adaptive:
-        
-            if Neff < self.num_particles / 2.0 or self.last_odom is None:
+
+        if Neff < self.num_particles / 2.0 or self.last_odom is None:
+            if self.use_adaptive:
                 self.resample_amcl_kld()
-        
-        else:
-            if Neff < self.num_particles/2 or self.last_odom is None:  # Resample if effective sample size is too low or if we haven't received any odometry yet (e.g., at the very beginning)
+
+            else:
                 self.resample_lvr()
         
         self.particles_prev = self.particles.copy()  # Update previous particles for the next iteration
         #print(f"[DEBUG] Updated particles prev")
 
-        t = time.time()
         self.meta_weights = self.calculate_unorm_weights(self.particles_prev)  # Update meta weights for the next iteration
         self.weights_pre = self.meta_weights.copy()  # Update weights_pre to the new meta weights for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
 
@@ -468,14 +472,14 @@ class AMCMHLocalizer:
         self.meta_cos = np.cos(self.particles_prev[:, 2]) * self.meta_weights  # Update meta cos for the next iteration
         self.meta_sin = np.sin(self.particles_prev[:, 2]) * self.meta_weights  # Update meta sin for the next iteration
 
+        #self.weights = self.calculate_weights(self.particles)
+        self.weights = self.meta_weights.copy()  # Update self.weights to the new weights for visualization and any other use in the next iteration, so that it reflects the current scan update.
         self.accept_odom = True
         self.updated_dist = True
         # rospy.loginfo("Publishing particles")
-        #self.weights = self.calculate_weights(self.particles)
-        self.weights = self.meta_weights.copy()  # Update self.weights to the new weights for visualization and any other use in the next iteration, so that it reflects the current scan update.
         self.publish_estimate(msg.header.stamp)
-        t = time.time()
-        self.publish_particles(msg.header.stamp)
+        if not self.headless :
+            self.publish_particles(msg.header.stamp)
 
     def update_scans(self,scan):
 
@@ -492,9 +496,9 @@ class AMCMHLocalizer:
     def update_particles_mh(self,weights_pre, weights_post, particles_prev=None, particles_post=None):
 
         if particles_prev is None:
-            particles_prev = self.particles_prev.copy()
+            particles_prev = self.particles_prev
         if particles_post is None:
-            particles_post = self.particles_prop.copy()
+            particles_post = self.particles
 
         mh_particles, weights, acc_rate = mh_resampling(particles_prev,particles_post,weights_post,weights_pre)
         
@@ -515,29 +519,28 @@ class AMCMHLocalizer:
         #rospy.loginfo("Moving particles with odometry using particle prev")
         self.do_mh_random_walk = False  
         self.updated_dist = False  # Flag to indicate that we have not yet updated the meta distribution with the new odometry, so we should not perform the MH random walk in the lidar callback until we have done so, to ensure that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
-        self.delta, current_odom = self.get_delta_odom(msg)
-        self.last_odom = current_odom  
+        self.delta, self.last_odom = self.get_delta_odom(msg)
 
         # apply motion model and update particles 
         # mh particles updated here and particles (meta-particles in 3MCL) in the lidar callback 
         # after processing the scan with the new path history
         #print(f"[DEBUG] Applying motion model to {len(self.particles_prev)} particles with delta")
-        self.particles_prop, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
+        self.particles, _  = apply_motion_model_parallel(self.particles_prev,self.delta,self.alpha,
                                                           self.map_data, self.resolution,
                                                           self.origin_np[0], self.origin_np[1],
                                                           self.width,self.height)
   
         # compute weights for particles before and after motion to use in MH step.
         #print(f"[DEBUG] Calculating weights for MH step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
-        self.weights_post = self.calculate_unorm_weights(self.particles_prop)
+        weights_post = self.calculate_unorm_weights(self.particles)
 
 
         # MH step to decide which particles to keep for the next iteration, with update on meta set
         # being made on lidar callback after processing the new scan.
 
         #print(f"[DEBUG] Performing MH resampling step with {len(self.particles_prev)} previous particles and {len(self.particles_prop)} proposed particles...")
-        mh_weights, mh_particles, acc_rate = self.update_particles_mh(self.weights_pre, self.weights_post,
-                                                               self.particles_prev, self.particles_prop)
+        mh_weights, mh_particles, acc_rate = self.update_particles_mh(self.weights_pre, weights_post,
+                                                               self.particles_prev, self.particles)
 
         mh_xy = mh_particles[:, :2]
         mh_cos = np.cos(mh_particles[:, 2])
@@ -573,12 +576,6 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
         
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update.")
-        
-        #self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration
-
-        #self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration
-         
-        self.odom_count += 1
 
     def get_delta_odom(self,msg):
 
@@ -609,17 +606,15 @@ class AMCMHLocalizer:
         return particles_prop
 
     def move_particles(self,msg):
+        self.particles_prev = self.particles.copy()
 
         self.delta, current_odom = self.get_delta_odom(msg)
             
-        self.particles_prop = self.update_particle_set(self.delta)
+        self.particles = self.update_particle_set(self.delta)
         
-        # rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
+        #rospy.loginfo(f"Particles moved: {len(self.particles_prop)}\n")
         #print(f"[DEBUG] Odom delta: rot1={self.delta[0]:.4f}, trans={self.delta[1]:.4f}, rot2={self.delta[2]:.4f}")
         #print(f"[DEBUG] Sampled deltas (first 5): {deltas[:5]}")
-        self.particles_prev = self.particles.copy()
-        self.particles = self.particles_prop.copy()
-
                 
         self.last_odom = current_odom
 
@@ -644,25 +639,25 @@ class AMCMHLocalizer:
         return rot1, trans, rot2
 
 
-    def transition_probability(self):
-        #print(f"[DEBUG] Delta for transition probability: {self.delta}")
-        if self.delta == (0.0, 0.0, 0.0):
-            return np.ones(len(self.particles)), np.ones(len(self.particles_prev))
+    # def transition_probability(self):
+    #     #print(f"[DEBUG] Delta for transition probability: {self.delta}")
+    #     if self.delta == (0.0, 0.0, 0.0):
+    #         return np.ones(len(self.particles)), np.ones(len(self.particles_prev))
 
-        trans_forward = motion_model_odometry_parallel(self.particles_prev,self.particles,
-                                                       np.array(self.delta), self.alpha)
+    #     trans_forward = motion_model_odometry_parallel(self.particles_prev,self.particles,
+    #                                                    np.array(self.delta), self.alpha)
         
-        dx, dy, dtheta = self.delta
-        backward_delta = np.array([
-            -dx * np.cos(dtheta) - dy * np.sin(dtheta),
-            dx * np.sin(dtheta) - dy * np.cos(dtheta),
-            -dtheta
-        ])
+    #     dx, dy, dtheta = self.delta
+    #     backward_delta = np.array([
+    #         -dx * np.cos(dtheta) - dy * np.sin(dtheta),
+    #         dx * np.sin(dtheta) - dy * np.cos(dtheta),
+    #         -dtheta
+    #     ])
         
-        trans_backward = motion_model_odometry_parallel(self.particles,self.particles_prev,
-                                                        backward_delta, self.alpha)
+    #     trans_backward = motion_model_odometry_parallel(self.particles,self.particles_prev,
+    #                                                     backward_delta, self.alpha)
 
-        return trans_forward, trans_backward
+    #     return trans_forward, trans_backward
 
     
     def mh_random_walk(self, particles, weights):
@@ -722,42 +717,42 @@ class AMCMHLocalizer:
     # Resample
     #======================================================================
 
-    def resample_amcl_simple(self):
+    # def resample_amcl_simple(self):
 
-        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+    #     p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
-        N = self.num_particles
-        N_random = int(p_random * N)
-        N_resampled = N - N_random
+    #     N = self.num_particles
+    #     N_random = int(p_random * N)
+    #     N_resampled = N - N_random
 
-        resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
+    #     resampled_particles = parallel_resample_simple(self.particles,self.weights,N_resampled)
 
-        random_particles = generate_valid_particles(N_random,self.map_data,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
+    #     random_particles = generate_valid_particles(N_random,self.map_data,
+    #                                                 self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
         
-        self.particles = np.vstack((resampled_particles,random_particles))
-        self.weights   = np.full(N,1/N)
+    #     self.particles = np.vstack((resampled_particles,random_particles))
+    #     self.weights   = np.full(N,1/N)
 
-    def resample_amcl_lvr(self):
+    # def resample_amcl_lvr(self):
 
-        p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
+    #     p_random = max(0.0, 1.0 - self.w_fast / (self.w_slow + 1e-9))
 
-        N = self.num_particles
-        resampled_particles = np.zeros_like(self.particles)
+    #     N = self.num_particles
+    #     resampled_particles = np.zeros_like(self.particles)
 
-        resampled_index, _ = low_variance_resample_numba(np.arange(N), self.weights, N)
-        resampled_index = resampled_index.astype(np.int64)
+    #     resampled_index, _ = low_variance_resample_numba(np.arange(N), self.weights, N)
+    #     resampled_index = resampled_index.astype(np.int64)
 
-        for i in range(N):
-            if np.random.rand() < p_random:
-                resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
-                                                    self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
+    #     for i in range(N):
+    #         if np.random.rand() < p_random:
+    #             resampled_particles[i,:] = generate_valid_particles(1,self.map_data,
+    #                                                 self.resolution,self.origin_np[0],self.origin_np[1],self.width,self.height)
 
-            else:
-                resampled_particles[i,:] = self.particles[resampled_index[i],:]
+    #         else:
+    #             resampled_particles[i,:] = self.particles[resampled_index[i],:]
         
-        self.particles = resampled_particles.copy()
-        self.weights   = np.full(N,1/N)
+    #     self.particles = resampled_particles.copy()
+    #     self.weights   = np.full(N,1/N)
 
 
     def resample_simple(self):
@@ -895,7 +890,7 @@ class AMCMHLocalizer:
             return
         
         self._viz_count = getattr(self, '_viz_count', 0) + 1
-        if self._viz_count % 1:        # publish on every 3rd call
+        if self._viz_count % 1:        # publish on every x-th call
             return
 
         marker_array = MarkerArray()
@@ -904,9 +899,7 @@ class AMCMHLocalizer:
         clear_marker.action = Marker.DELETEALL
         marker_array.markers.append(clear_marker)
 
-
-        weights = self.weights.copy()
-        norm_weights = (weights - weights.min()) / (weights.max() - weights.min() + 1e-6)
+        norm_weights = (self.weights - self.weights.min()) / (self.weights.max() - self.weights.min() + 1e-6)
         #print(f"[DEBUG] Publishing {len(self.particles)} particles with normalized weights (min: {norm_weights.min():.4f}, max: {norm_weights.max():.4f})")
         marker_id =0
         now = stamp if stamp is not None and stamp != rospy.Time(0) else rospy.Time.now()
@@ -965,6 +958,7 @@ class AMCMHLocalizer:
         pose.pose.pose.orientation.z = np.sin(mean_theta / 2.0)
         pose.pose.pose.orientation.w = np.cos(mean_theta / 2.0)
 
+# Why?
         # Preenche a matriz de covariância (6x6 flatten)
         # We use only the dimensions x, y, theta -> [0,0], [1,1], [5,5]
         cov_flat = np.zeros(36)
@@ -989,37 +983,31 @@ class AMCMHLocalizer:
         # 1. MOVE: Apply Odometry first
         # This keeps particles_prev and particles at the same size
         #print("[DEBUG] Sync callback triggered: moving particles with odometry...")
-        t = time.time()
         self.move_particles(odom_msg) 
         #print(f"[DEBUG] Particle movement took {time.time() - t:.4f} seconds")
         
         # 2. WEIGHT: Use the LiDAR scan to update weights
         #print("[DEBUG] Updating weights with LiDAR scan...")
-        t = time.time()
         self.update_scans(scan_msg)
         #print(f"[DEBUG] Scan processing took {time.time() - t:.4f} seconds")
 
-        t = time.time()
         if not self.use_adaptive:
-            weights_pre, weights_post = self.update_weights(self.particles_prev, self.particles)
+            weights_pre, weights = self.update_weights(self.particles_prev, self.particles)
         else:
             weights_pre  = self.calculate_unorm_weights(self.particles_prev)
-            weights_post = self.calculate_unorm_weights(self.particles)
+            weights = self.calculate_unorm_weights(self.particles)
         #print(f"[DEBUG] Weight update took {time.time() - t:.4f} seconds")
-        
+
         # 3. MH STEP: Perform MH resampling
+        acc_rate = 0.0
         if self.use_mh:
-            weights, self.particles, acc_rate = self.update_particles_mh(weights_pre, weights_post)
-        else:
-            weights = weights_post
-            acc_rate = 0.0
+            weights, self.particles, acc_rate = self.update_particles_mh(weights_pre, weights)
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
         self.Neff_pub.publish(Float64(Neff))
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
-        t = time.time()
         if self.use_adaptive:
             self.update_acml_weights(weights)
             if Neff < self.num_particles / 1.0:
@@ -1032,13 +1020,12 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Resampling took {time.time() - t:.4f} seconds")
 
         # 5. PUBLISH
-        t = time.time()
         self.weights = self.calculate_weights(self.particles)  # Recalculate weights for the new particle set after resampling, to use in the visualization and estimate publication. This is important because resampling changes the particle set and we want the published weights to reflect the current particles.
 
-        t = time.time()
         self.acc_rate.publish(Float64(acc_rate))
         stamp = scan_msg.header.stamp if scan_msg.header.stamp != rospy.Time(0) else odom_msg.header.stamp
-        self.publish_particles(stamp)
+        if not self.headless :
+            self.publish_particles(stamp)
         self.publish_estimate(stamp)
         #print(f"[DEBUG] Publishing took {time.time() - t:.4f} seconds")
 
