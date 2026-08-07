@@ -7,6 +7,7 @@ from collections import defaultdict
 import statsmodels.api as sm
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
+import matplotlib.ticker as ticker
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
@@ -882,7 +883,11 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
         handles.append(mlines.Line2D([], [], color='black', marker=STYLE_MARKER[entry], label=f"{entry}p", linewidth=0))
     for entry in list_algo :
         handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
-    
+
+    plt.xlim(left=0)
+    ax = plt.gca()
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
