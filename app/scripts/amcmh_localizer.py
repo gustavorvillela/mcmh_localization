@@ -116,7 +116,6 @@ class AMCMHLocalizer:
         else:
             rospy.loginfo("Initializing particles uniformly on the map")
 
-        #AMCL
         if self.use_adaptive : # if AMCL
             self.min_particles = rospy.get_param('min_particles', self.num_particles/2)
             self.max_particles = rospy.get_param('max_particles', self.num_particles*2)
@@ -146,7 +145,6 @@ class AMCMHLocalizer:
             # Equivalent decay factor
             self.meta_decay = np.exp(-self.meta_lambda)
 
-# Never used
             # Current recency multiplier
             self.meta_time_weight = 1.0
 
@@ -155,9 +153,6 @@ class AMCMHLocalizer:
             self.meta_sin = np.sin(self.particles_prev[:, 2]).copy() * self.weights_pre
             
             self.meta_weights = self.weights_pre#.copy()  # Initialize meta weights as zeros
-        #self.weights_viz = self.weights.copy()
-
-        # if self.use_mh : # if use MH
 
         self.last_odom = None
 
