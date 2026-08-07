@@ -8,6 +8,7 @@
   <arg name="init_particles" default=""/>
   <arg name="min_particles" default=""/>
   <arg name="max_particles" default=""/>
+  <arg name="random_steps" default=""/>
 
   <arg name="poll_period" default="0.1"/>
   <arg name="save_to_csv" default="true"/>
@@ -22,6 +23,7 @@
   <param if="$(eval arg('init_particles') != '')" name="init_particles" value="$(arg init_particles)" type="int"/>
   <param if="$(eval arg('min_particles') != '')" name="min_particles" value="$(arg min_particles)" type="int"/>
   <param if="$(eval arg('max_particles') != '')" name="max_particles" value="$(arg max_particles)" type="int"/>
+  <param if="$(eval arg('random_steps') != '')" name="random_steps" value="$(arg random_steps)" type="int"/>
 
   <!-- Extension for result name -->
   <arg name="name_ext" default=""/>
