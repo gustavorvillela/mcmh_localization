@@ -145,6 +145,9 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
+def extract_config(config_dir):
+    return config_dir.split('/')[-1]
+
 def normalize_yaw(angle):
     return np.arctan2(np.sin(angle), np.cos(angle))
 
