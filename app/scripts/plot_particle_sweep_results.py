@@ -1343,6 +1343,8 @@ def process_results_dir(results_dir, results_root):
                 p: summarize_metric_bucket(p_dict[p])
                 for p in sorted(p_dict.keys())
             }
+            if algo == SUPER_ALGO:
+                get_data_super(results_dir, scenario, p_dict.keys(), data, data_metrics)
         
         # --- Plot everything for this scenario 
         pos_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
@@ -1426,6 +1428,60 @@ def process_results_dir(results_dir, results_root):
         
     generate_html_report(data, plots_dir, True, report_label)
 
+def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=SUPER_ALGO):
+    global data_super
+
+    config_name = extract_config(results_dir)
+
+    for particles in d_particles:
+        memo = [np.mean(data_metrics[scenario][algo][particles][run].get('cpu_use')) for run in data_metrics[scenario][algo][particles]]
+        rmse = data[scenario][algo][particles]["pos"].copy()
+        data_super[config_name][particles] = (memo, rmse)
+
+def plot_super(plot_dir, style=STYLE_SUPER):
+    global data_super
+
+    plt.figure(figsize=(8, 6))
+
+    plt.title(f"Comparizon of {SUPER_ALGO} algorism for diffrents parameters")
+    plt.xlabel("Position RMSE (m)")
+    plt.ylabel("Memory use (MBytes)")
+
+    list_particles = []
+    list_config = data_super.keys()
+    for config in list_config:
+        list_part = data_super[config].keys()
+        for particles in list_part:
+            if particles not in list_particles:
+                list_particles.append(particles)
+
+            x = data_super[config][particles][1]
+            y = [val for val in data_super[config][particles][0]]
+            
+            plt.scatter(
+                x=x,
+                y=y,
+                color=style['color'][config],
+                marker=style['marker'][particles]
+            )
+
+    handles = []
+    list_particles.sort()
+    for entry in list_particles :
+        handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=entry, linewidth=0))
+    for entry in list_config :
+        handles.append(mpatches.Patch(color=style['color'][entry], label=entry))
+
+    plot_path = os.path.join(plot_dir, f"{SUPER_ALGO}_memory-rmse.png")
+    plt.xlim(left=0)
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend(handles=handles)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"{SUPER_ALGO} memory-rmse plot saved at: {plot_path}")
+
+
 def main():
     results_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../results'))
     if not os.path.exists(results_root):
@@ -1437,9 +1493,16 @@ def main():
         print("No valid data found.")
         return
 
+    global data_super 
+    data_super = {}
+
     for results_dir in result_dirs:
         print(f"\nProcessing particle sweep plots in: {results_dir}")
+        config_name = extract_config(results_dir)
+        data_super[config_name] = {}
         process_results_dir(results_dir, results_root)
+
+    plot_super(results_root)
 
 def generate_html_report(all_data, results_dir, same_dir=False, report_label=None):
 
