@@ -13,15 +13,18 @@ DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
 REPEATS=30   # number of repeats per configuration
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
+CLEAR=1   # Clean the results dir?
 mkdir -p "$RESULTS_DIR"
 echo "Cleaning previous results..."
 
 # Remove only generated result files (safe filter)
-find "$RESULTS_DIR" -type f \( \
-    -name "*.txt" -o \
-    -name "*.html" -o \
-    -name "*.png" \
-\) -delete
+if $CLEAR == 1 ; then
+    find "$RESULTS_DIR" -type f \( \
+        -name "*.txt" -o \
+        -name "*.html" -o \
+        -name "*.png" \
+    \) -delete
+fi
 
 scenario_profile() {
     case "$1" in
