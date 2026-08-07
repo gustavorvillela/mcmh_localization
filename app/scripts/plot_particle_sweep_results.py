@@ -54,6 +54,28 @@ STYLE_MARKER = {
         1000: '*'
         #'other': ',4X'
     }
+SUPER_ALGO = '3MCL'
+#[#E69F00, #56B4E9, #009E73, #F0E442, #0072B2, #D55E00, #CC79A7, #000000]
+STYLE_SUPER = {
+    'color':{
+        'medium_30steps.yaml':"#E69F00",
+        'medium_50steps.yaml':"#56B4E9",
+        'medium_20steps.yaml':"#009E73",
+        'medium_40steps.yaml':"#F0E442",
+    },
+    'marker':{
+        50: '|',
+        100: 'o',
+        150: 'h',
+        200: 'x',
+        250: '<',
+        300: 's',
+        350: '>',
+        400: '^',
+        450: '_',
+        500: 'v'
+    }
+}
 
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
