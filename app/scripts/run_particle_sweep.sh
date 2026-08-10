@@ -15,16 +15,22 @@ REPEATS=30   # number of repeats per configuration
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 CLEAR=1   # Clean the results dir?
 mkdir -p "$RESULTS_DIR"
-echo "Cleaning previous results..."
 
 # Remove only generated result files (safe filter)
-if $CLEAR == 1 ; then
-    find "$RESULTS_DIR" -type f \( \
+if [ "$CLEAR" -eq 1 ] ; then
+    echo "Cleaning previous results..."
+    find "$RESULTS_DIR" -depth -type f \( \
         -name "*.txt" -o \
         -name "*.html" -o \
         -name "*.png" \
     \) -delete
 fi
+
+# # Remove every file in results/
+# if [ "$CLEAR" -eq 1 ] ; then
+#     echo "Cleaning previous results..."
+#     rm -rf "$RESULTS_DIR/"
+# fi
 
 scenario_profile() {
     case "$1" in
@@ -59,8 +65,11 @@ mode_param_file() {
     fi
 }
 
+mkdir -p "$RESULTS_DIR/plots"
 for SCENARIO in "${SCENARIOS[@]}"; do
-    mkdir -p "$RESULTS_DIR/$SCENARIO/plots"
+    for STEPS in "${STEPS_COUNT[@]}"; do
+        mkdir -p "$RESULTS_DIR/$SCENARIO/$STEPS/plots"
+    done
 done
 
 export ROS_MASTER_URI=http://localhost:11311
