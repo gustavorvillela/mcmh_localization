@@ -918,7 +918,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
 
     plt.xlim(left=0)
     ax = plt.gca()
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
+    #ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
     #ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
