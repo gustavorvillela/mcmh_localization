@@ -54,14 +54,18 @@ STYLE_MARKER = {
         1000: '*'
         #'other': ',4X'
     }
-SUPER_ALGO = '3MCL'
+ALGO_SUPER = '3MCL'
 #[#E69F00, #56B4E9, #009E73, #F0E442, #0072B2, #D55E00, #CC79A7, #000000]
 STYLE_SUPER = {
     'color':{
-        'medium_30steps.yaml':"#E69F00",
-        'medium_50steps.yaml':"#56B4E9",
-        'medium_20steps.yaml':"#009E73",
-        'medium_40steps.yaml':"#F0E442",
+        '10':"#E69F00",
+        '20':"#56B4E9",
+        '30':"#009E73",
+        '40':"#F0E442",
+        '50':"#0072B2",
+        '60':"#D55E00",
+        '70':"#CC79A7",
+        '80':"#000000",
     },
     'marker':{
         50: '|',
@@ -145,8 +149,11 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
-def extract_config(config_dir):
+def extract_random_steps(config_dir):
     return config_dir.split('/')[-1]
+
+def extract_config(config_dir):
+    return config_dir.split('/')[-2]
 
 def normalize_yaw(angle):
     return np.arctan2(np.sin(angle), np.cos(angle))
@@ -1343,7 +1350,7 @@ def process_results_dir(results_dir, results_root):
                 p: summarize_metric_bucket(p_dict[p])
                 for p in sorted(p_dict.keys())
             }
-            if algo == SUPER_ALGO:
+            if algo == ALGO_SUPER:
                 get_data_super(results_dir, scenario, p_dict.keys(), data, data_metrics)
         
         # --- Plot everything for this scenario 
@@ -1428,58 +1435,65 @@ def process_results_dir(results_dir, results_root):
         
     generate_html_report(data, plots_dir, True, report_label)
 
-def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=SUPER_ALGO):
+def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=ALGO_SUPER):
     global data_super
 
-    config_name = extract_config(results_dir)
+    config = extract_config(results_dir)
+    nb_steps = extract_random_steps(results_dir)
 
     for particles in d_particles:
-        memo = [np.mean(data_metrics[scenario][algo][particles][run].get('cpu_use')) for run in data_metrics[scenario][algo][particles]]
+        memo = [np.mean(data_metrics[scenario][algo][particles][run].get('memory_use')) for run in data_metrics[scenario][algo][particles]]
+        cpu = [np.mean(data_metrics[scenario][algo][particles][run].get('cpu_use')) for run in data_metrics[scenario][algo][particles]]
         rmse = data[scenario][algo][particles]["pos"].copy()
-        data_super[config_name][particles] = (memo, rmse)
+        data_super[config][nb_steps][particles] = (memo, cpu, rmse)
 
-def plot_super(plot_dir, style=STYLE_SUPER):
+def plot_super(metric, plot_dir, style=STYLE_SUPER):
     global data_super
 
     plt.figure(figsize=(8, 6))
 
-    plt.title(f"Comparizon of {SUPER_ALGO} algorism for diffrents parameters")
+    plt.title(f"Comparizon of {ALGO_SUPER} algorism for diffrents parameters")
     plt.xlabel("Position RMSE (m)")
-    plt.ylabel("Memory use (MBytes)")
 
     list_particles = []
     list_config = data_super.keys()
     for config in list_config:
-        list_part = data_super[config].keys()
-        for particles in list_part:
-            if particles not in list_particles:
-                list_particles.append(particles)
+        list_nb_step = data_super[config].keys()
+        for nb_steps in list_nb_step :
+            list_part = data_super[config][nb_steps].keys()
+            for particles in list_part:
+                if particles not in list_particles:
+                    list_particles.append(particles)
+                x = data_super[config][nb_steps][particles][-1]
+                if metric == "memory_use" :
+                    y = [val * 1e-6 for val in data_super[config][nb_steps][particles][0]]
+                    plt.ylabel("Memory use (MBytes)")
+                elif metric == "cpu_use" :
+                    y = [val for val in data_super[config][nb_steps][particles][1]]
+                    plt.ylabel("Cpu use (Percentage for one cpu)")
+                
+                plt.scatter(
+                    x=x,
+                    y=y,
+                    color=style['color'][nb_steps],
+                    marker=style['marker'][particles]
+                )
 
-            x = data_super[config][particles][1]
-            y = [val for val in data_super[config][particles][0]]
-            
-            plt.scatter(
-                x=x,
-                y=y,
-                color=style['color'][config],
-                marker=style['marker'][particles]
-            )
+        handles = []
+        list_particles.sort()
+        for entry in list_particles :
+            handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=entry, linewidth=0))
+        for entry in list_nb_step :
+            handles.append(mpatches.Patch(color=style['color'][entry], label=entry))
 
-    handles = []
-    list_particles.sort()
-    for entry in list_particles :
-        handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=entry, linewidth=0))
-    for entry in list_config :
-        handles.append(mpatches.Patch(color=style['color'][entry], label=entry))
-
-    plot_path = os.path.join(plot_dir, f"{SUPER_ALGO}_memory-rmse.png")
-    plt.xlim(left=0)
-    plt.grid(True, linestyle='--', alpha=0.4)
-    plt.legend(handles=handles)
-    plt.tight_layout()
-    plt.savefig(plot_path, dpi=200)
-    plt.close()
-    print(f"{SUPER_ALGO} memory-rmse plot saved at: {plot_path}")
+        plot_path = os.path.join(plot_dir, f"{config}_{ALGO_SUPER}_{metric}-rmse.png")
+        plt.xlim(left=0)
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.legend(handles=handles)
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print(f"{ALGO_SUPER} {metric} memory-rmse plot saved at: {plot_path}")
 
 
 def main():
@@ -1498,11 +1512,18 @@ def main():
 
     for results_dir in result_dirs:
         print(f"\nProcessing particle sweep plots in: {results_dir}")
-        config_name = extract_config(results_dir)
-        data_super[config_name] = {}
+
+        config = extract_config(results_dir)
+        if config not in data_super.keys() :
+            data_super[config] = {}
+        step = extract_random_steps(results_dir)
+        if step not in data_super[config].keys() :
+            data_super[config][step] = {}
         process_results_dir(results_dir, results_root)
 
-    plot_super(results_root)
+    results_root = os.path.join(results_root, "plots")
+    plot_super("memory_use", results_root)
+    plot_super("cpu_use", results_root)
 
 def generate_html_report(all_data, results_dir, same_dir=False, report_label=None):
 
