@@ -890,7 +890,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
             for run in data_metrics[scenario][algo][particles] :
                 val = data_metrics[scenario][algo][particles][run].get(metric)
                 if metric == 'memory_use' :
-                    list_data.append(np.mean(val) * 10e-6)
+                    list_data.append(np.mean(val) * 1e-6)
                 else :
                     list_data.append(np.mean(val))
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
@@ -919,7 +919,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     plt.xlim(left=0)
     ax = plt.gca()
     ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
+    #ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
