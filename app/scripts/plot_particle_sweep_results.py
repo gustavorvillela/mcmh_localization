@@ -1452,7 +1452,7 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
 
     plt.figure(figsize=(8, 6))
 
-    plt.title(f"Comparizon of {ALGO_SUPER} algorism for diffrents parameters")
+    plt.title(f"{ALGO_SUPER} - {metric.replace('_', ' ').upper()} vs RMSE for diffrents number of random_steps and number of particle")
     plt.xlabel("Position RMSE (m)")
 
     list_particles = []
@@ -1470,7 +1470,17 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
                     plt.ylabel("Memory use (MBytes)")
                 elif metric == "cpu_use" :
                     y = [val for val in data_super[config][nb_steps][particles][1]]
-                    plt.ylabel("Cpu use (Percentage for one cpu)")
+                    plt.ylabel("CPU use (Percentage for one cpu)")
+                elif metric == "mean_cpu_use" :
+                    y = np.mean([val for val in data_super[config][nb_steps][particles][1]])
+                    x = np.mean(x)
+                    plt.ylabel("Mean CPU use (Percentage for one cpu)")
+                    plt.xlabel("Mean position RMSE (m)")
+                elif metric == "mean_memory_use" :
+                    y = np.mean([val * 1e-6 for val in data_super[config][nb_steps][particles][0]])
+                    x = np.mean(x)
+                    plt.ylabel("Mean memory use (MBytes)")
+                    plt.xlabel("Mean position RMSE (m)")
                 
                 plt.scatter(
                     x=x,
@@ -1482,9 +1492,9 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
         handles = []
         list_particles.sort()
         for entry in list_particles :
-            handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=entry, linewidth=0))
+            handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=str(entry)+' particles', linewidth=0))
         for entry in list_nb_step :
-            handles.append(mpatches.Patch(color=style['color'][entry], label=entry))
+            handles.append(mpatches.Patch(color=style['color'][entry], label=str(entry)+' random_steps'))
 
         plot_path = os.path.join(plot_dir, f"{config}_{ALGO_SUPER}_{metric}-rmse.png")
         plt.xlim(left=0)
@@ -1524,6 +1534,8 @@ def main():
     results_root = os.path.join(results_root, "plots")
     plot_super("memory_use", results_root)
     plot_super("cpu_use", results_root)
+    plot_super("mean_memory_use", results_root)
+    plot_super("mean_cpu_use", results_root)
 
 def generate_html_report(all_data, results_dir, same_dir=False, report_label=None):
 
