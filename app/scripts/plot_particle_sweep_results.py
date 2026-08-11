@@ -839,7 +839,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
 # I/ scenario: String
 # I/ data_metrics: Dictionnary of the metrics collected for every run
 # I/ data: Dictionary of metrics saved for every run
-# I/ plots_dir: path-like object to save the lot at right place
+# I/ plots_dir: path-like object to save the plot at right place
 # I/ styles: Dictionnary that record the style to use for each algo
 # O/ Nothing
 # Necessity: A dictionnary data_metrics matching the spec in main(),
@@ -856,7 +856,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     I/ scenario: String \\
     I/ data_metrics: Dictionnary of the metrics collected for every run \\
     I/ data: Dictionary of metrics saved for every run \\
-    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ plots_dir: path-like object to save the plot at right place \\
     I/ styles: Dictionnary that record the style to use for each algo \\
     O/ Nothing \\
     Necessity: A dictionnary data_metrics matching the spec in main(); plots_dir a valid path; scenario a valid senario; data matching the output of unpack_best_per_algo and metric to be "cpu_use" or "memory_use" \\
@@ -1435,7 +1435,35 @@ def process_results_dir(results_dir, results_root):
         
     generate_html_report(data, plots_dir, True, report_label)
 
+# Action: Add the monitored data into global dictionnary
+# I/ results_dir: path-like object to the analysed file
+# I/ scenario: String
+# I/ d_particles: Dictionnary of number of particles
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ data: Dictionary of metrics saved for every run
+# I/ algo=ALGO_SUPER: String
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           results_dir a valid path,
+#           scenario a valid senario,
+#           data matching the output of unpack_best_per_algo,
+#           d_particles having all and every number of particles as keys,
+#           and algo the algorithms to study
+# Produce: Add in data_super the memory, cpu and rmse for each run of this algo
 def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=ALGO_SUPER):
+    '''
+    Action: Add the monitored data into global dictionnary \\
+    I/ results_dir: path-like object to the analysed file \\
+    I/ scenario: String \\
+    I/ d_particles: Dictionnary of number of particles \\
+    I/ data_metrics: Dictionnary of the metrics collected for every run \\
+    I/ data: Dictionary of metrics saved for every run \\
+    I/ algo=ALGO_SUPER: String \\
+    O/ Nothing \\
+    Necessity: A dictionnary data_metrics matching the spec in main(), results_dir a valid path, scenario a valid senario, data matching the output of unpack_best_per_algo, d_particles having all and every number of particles as keys, and algo the algorithms to study \\
+    Produce: Add in data_super the memory, cpu and rmse for each run of this algo
+    '''
+
     global data_super
 
     config = extract_config(results_dir)
@@ -1447,7 +1475,28 @@ def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=
         rmse = data[scenario][algo][particles]["pos"].copy()
         data_super[config][nb_steps][particles] = (memo, cpu, rmse)
 
+# Action: Plot the choiced monitoring over rmse
+# I/ metric: String
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for particles and
+#           number of random_steps
+# O/ Nothing
+# Necessity: plots_dir a valid path
+#           and metric to be "cpu_use", "memory_use", "mean_cpu_use" or
+#               "mean_memory_use"
+# Produce: One plot of the metric over rmse 
+#           saved as {config}_{ALGO_SUPER}_{metric}-rmse.png
 def plot_super(metric, plot_dir, style=STYLE_SUPER):
+    '''
+    Action: Plot the choiced monitoring over rmse \\
+    I/ metric: String \\
+    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ styles: Dictionnary that record the style to use for particles and number of random_steps \\
+    O/ Nothing \\
+    Necessity: plots_dir a valid path and metric to be "cpu_use", "memory_use", "mean_cpu_use" or "mean_memory_use" \\
+    Produce: One plot of the metric over rmse saved as {config}_{ALGO_SUPER}_{metric}-rmse.png
+    '''
+
     global data_super
 
     plt.figure(figsize=(8, 6))
