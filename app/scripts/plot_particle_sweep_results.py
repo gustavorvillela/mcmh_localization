@@ -1483,8 +1483,8 @@ def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=
 # Necessity: plots_dir a valid path
 #           and metric to be "cpu_use", "memory_use", "mean_cpu_use" or
 #               "mean_memory_use"
-# Produce: One plot of the metric over rmse 
-#           saved as {config}_{ALGO_SUPER}_{metric}-rmse.png
+# Produce: One plot of the metric over rmse saved as 
+#           {config}_{ALGO_SUPER}_{metric}-rmse.png if ALGO_SUPER not ''
 def plot_super(metric, plot_dir, style=STYLE_SUPER):
     '''
     Action: Plot the choiced monitoring over rmse \\
@@ -1493,10 +1493,13 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
     I/ styles: Dictionnary that record the style to use for particles and number of random_steps \\
     O/ Nothing \\
     Necessity: plots_dir a valid path and metric to be "cpu_use", "memory_use", "mean_cpu_use" or "mean_memory_use" \\
-    Produce: One plot of the metric over rmse saved as {config}_{ALGO_SUPER}_{metric}-rmse.png
+    Produce: One plot of the metric over rmse saved as {config}_{ALGO_SUPER}_{metric}-rmse.png if ALGO_SUPER not ''
     '''
 
     global data_super
+
+    if ALGO_SUPER == '':
+        return
 
     plt.figure(figsize=(8, 6))
 
