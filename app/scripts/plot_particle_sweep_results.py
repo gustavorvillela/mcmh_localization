@@ -456,9 +456,9 @@ def plot_sweep_metric(data, scenario, plot_path, metric, ylabel, title, styles=N
 def plot_recall_rates(data, scenario, plots_dir, styles=None):
     styles = styles or {}
     recall_specs = [
-        ("recall_t1", "T1: <0.25 m, <2 deg"),
-        ("recall_t2", "T2: <0.50 m, <5 deg"),
-        ("recall_t3", "T3: <5.00 m, <10 deg"),
+        ("recall_t1", f"T1: <{RECALL_THRESHOLDS['recall_t1'][0]} m, <{round(np.rad2deg(RECALL_THRESHOLDS['recall_t1'][1]))} deg"),
+        ("recall_t2", f"T2: <{RECALL_THRESHOLDS['recall_t2'][0]} m, <{round(np.rad2deg(RECALL_THRESHOLDS['recall_t2'][1]))} deg"),
+        ("recall_t3", f"T3: <{RECALL_THRESHOLDS['recall_t3'][0]} m, <{round(np.rad2deg(RECALL_THRESHOLDS['recall_t3'][1]))} deg")
     ]
 
     for (metric, title) in recall_specs:
@@ -496,7 +496,6 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
             
         plt.tight_layout()
         plt.legend()
-        #title = title.lower().replace(" ","")
         dir_name = f"{scenario}_recall_rates_{metric}.png"
         recall_plot_path = os.path.join(plots_dir, dir_name)
         plt.savefig(recall_plot_path, dpi=200)
