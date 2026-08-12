@@ -5,15 +5,15 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
-MODE=("3MCL")   # Can adjust as desired
-PARTICLE_COUNTS=(50 100 500)  # particle counts to test
-STEPS_COUNTS=(10 30 50 70 80)  # particle counts to test
+MODES=("MCL" "MHMCL" "3MCL")   # Can adjust as desired
+PARTICLE_COUNTS=(50 100 300 500)  # particle counts to test
+STEPS_COUNTS=(10)  # particle counts to test
 SCENARIOS=(M)  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-CLEAR=1   # Clean the results dir?
-REPEATS=5   # number of repeats per configuration
+REPEATS=10   # number of repeats per configuration
+CLEAR=0   # Clean the results dir?
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 
