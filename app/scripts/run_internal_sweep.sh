@@ -125,39 +125,41 @@ for SCENARIO in "${SCENARIOS[@]}"; do
 
     for BAG in "${BAGS[@]}"; do
         BAG_NAME=$(basename "$BAG" .bag)
-        PARAM_FILE="$(mode_param_file "$MODE" "$SCENARIO")"
-        for SCOUNT in "${STEPS_COUNTS[@]}"; do
-            SCENARIO_STEPS_RESULTS_DIR="$SCENARIO_RESULTS_DIR/$SCOUNT"
-            for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
-                for ((i=1; i<=REPEATS; i++)); do
-                    echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
-                    echo "Params: $PARAM_FILE"
-                    export BAG_FILE="$BAG"
-                    RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
+        for MODE in "${MODES[@]}"; do
+            PARAM_FILE="$(mode_param_file "$MODE" "$SCENARIO")"
+            for SCOUNT in "${STEPS_COUNTS[@]}"; do
+                SCENARIO_STEPS_RESULTS_DIR="$SCENARIO_RESULTS_DIR/$SCOUNT"
+                for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
+                    for ((i=1; i<=REPEATS; i++)); do
+                        echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
+                        echo "Params: $PARAM_FILE"
+                        export BAG_FILE="$BAG"
+                        RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
 
-                    roslaunch mcmh_localization test_algs.launch \
-                        mode:=$MODE \
-                        result_name:=$RESULT_NAME \
-                        robot_name:=$MODEL \
-                        param_file:="$PARAM_FILE" \
-                        results_dir:="$SCENARIO_STEPS_RESULTS_DIR" \
-                        init_particles:="$PCOUNT" \
-                        max_particles:="$((PCOUNT * 2))" \
-                        min_particles:="$((PCOUNT / 10))" \
-                        random_steps:="$SCOUNT" \
-                        &
+                        roslaunch mcmh_localization test_algs.launch \
+                            mode:=$MODE \
+                            result_name:=$RESULT_NAME \
+                            robot_name:=$MODEL \
+                            param_file:="$PARAM_FILE" \
+                            results_dir:="$SCENARIO_STEPS_RESULTS_DIR" \
+                            init_particles:="$PCOUNT" \
+                            max_particles:="$((PCOUNT * 2))" \
+                            min_particles:="$((PCOUNT / 10))" \
+                            random_steps:="$SCOUNT" \
+                            &
 
-                    LAUNCH_PID=$!
-                    ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
-                    wait "$LAUNCH_PID"
-                    kill "$WATCHDOG_PID" 2>/dev/null
+                        LAUNCH_PID=$!
+                        ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
+                        wait "$LAUNCH_PID"
+                        kill "$WATCHDOG_PID" 2>/dev/null
 
-                    if ps -p "$LAUNCH_PID" > /dev/null; then
-                        echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
-                        kill "$LAUNCH_PID"
-                    fi
+                        if ps -p "$LAUNCH_PID" > /dev/null; then
+                            echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
+                            kill "$LAUNCH_PID"
+                        fi
 
-                    sleep 5
+                        sleep 5
+                    done
                 done
             done
         done

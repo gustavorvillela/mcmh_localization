@@ -5,32 +5,32 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
-MODES=("MCL" "MHMCL" "AMCL" "MHAMCL")   # Can adjust as desired
-PARTICLE_COUNTS=(100 300 500 750 1000)  # particle counts to test
+MODES=("MCL" "MHMCL" ""AMCL" "MHAMCL"")   # Can adjust as desired
+PARTICLE_COUNTS=(50 100 500)  # particle counts to test
 SCENARIOS=("M")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-REPEATS=30   # number of repeats per configuration
-MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
+REPEATS=10   # number of repeats per configuration
 CLEAR=1   # Clean the results dir?
+MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 
 # Remove only generated result files (safe filter)
-if [ "$CLEAR" -eq 1 ] ; then
-    echo "Cleaning previous results..."
-    find "$RESULTS_DIR" -depth -type f \( \
-        -name "*.txt" -o \
-        -name "*.html" -o \
-        -name "*.png" \
-    \) -delete
-fi
-
-# # Remove every file in results/
 # if [ "$CLEAR" -eq 1 ] ; then
 #     echo "Cleaning previous results..."
-#     rm -rf "$RESULTS_DIR/"
+#     find "$RESULTS_DIR" -depth -type f \( \
+#         -name "*.txt" -o \
+#         -name "*.html" -o \
+#         -name "*.png" \
+#     \) -delete
 # fi
+
+# Remove every file in results/
+if [ "$CLEAR" -eq 1 ] ; then
+    echo "Cleaning previous results..."
+    rm -rf "$RESULTS_DIR/"
+fi
 
 scenario_profile() {
     case "$1" in
