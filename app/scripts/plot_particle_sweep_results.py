@@ -54,7 +54,7 @@ STYLE_MARKER = {
         1000: '*'
         #'other': ',4X'
     }
-ALGO_SUPER = '3MCL'
+ALGO_SUPER = ''
 #[#E69F00, #56B4E9, #009E73, #F0E442, #0072B2, #D55E00, #CC79A7, #000000]
 STYLE_SUPER = {
     'color':{
