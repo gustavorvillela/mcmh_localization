@@ -870,10 +870,10 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     styles = styles or {}
     plt.figure(figsize=(8, 6))
 
-    title = f"{metric} use vs RMSE - {scenario}"
+    title = f"RMSE vs {metric} use - {scenario}"
     plt.title(title)
-    plt.xlabel("Position RMSE (m)")
-    plt.ylabel(f"{D_metrics[metric]}")
+    plt.ylabel("Position RMSE (m)")
+    plt.xlabel(f"{D_metrics[metric]}")
 
     plot_path = os.path.join(plots_dir, f"{scenario}_{metric}_rmse_all.png")
     plotted = False     
@@ -897,8 +897,8 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
             plt.scatter(
-                y=list_data,
-                x=list_rmse,
+                y=list_rmse,
+                x=list_data,
                 color=style['color'],
                 marker=STYLE_MARKER[particles]
             )
@@ -915,10 +915,6 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     for entry in list_algo :
         handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
 
-    plt.xlim(left=0)
-    ax = plt.gca()
-    #ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
-    #ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
