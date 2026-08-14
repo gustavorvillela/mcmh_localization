@@ -3,7 +3,9 @@ import rospy
 from gazebo_msgs.msg import ModelStates
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
+import os
 
+GT_X_OFFSET = float(os.environ.get("MCMH_GT_X_OFFSET", "0.7"))
 
 class GroundTruthTF:
     def __init__(self):
@@ -42,7 +44,7 @@ class GroundTruthTF:
         t.header.frame_id = self.parent_frame
         t.child_frame_id = self.child_frame
 
-        t.transform.translation.x = pose.position.x + 0.7 
+        t.transform.translation.x = pose.position.x + GT_X_OFFSET
         t.transform.translation.y = pose.position.y
         t.transform.translation.z = pose.position.z
 

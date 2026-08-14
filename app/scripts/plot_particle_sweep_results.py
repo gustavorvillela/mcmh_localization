@@ -5,17 +5,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import statsmodels.api as sm
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
 GT_X_OFFSET = float(os.environ.get("MCMH_GT_X_OFFSET", "0.7"))
 RECALL_THRESHOLDS = {
-    "recall_t1": (0.25, np.deg2rad(2.0)),
-    "recall_t2": (0.50, np.deg2rad(5.0)),
-    "recall_t3": (5.00, np.deg2rad(10.0)),
+    "recall_t1": (0.50, np.deg2rad(05.0)),
+    "recall_t2": (1.00, np.deg2rad(10.0)),
+    "recall_t3": (5.00, np.deg2rad(30.0)),
 }
-FAILURE_POS_THRESHOLD = 5.0
-FAILURE_YAW_THRESHOLD = np.deg2rad(45.0)
+FAILURE_POS_THRESHOLD = 1.00
+FAILURE_YAW_THRESHOLD = np.deg2rad(10.0)
 METRIC_KEYS = [
     "pos",
     "yaw",
@@ -25,7 +27,32 @@ METRIC_KEYS = [
     "recall_t2",
     "recall_t3",
     "failure_rate",
+    "cpu_use",
+    "memory_use"
 ]
+STYLE_MARKER = {
+        50: '|',
+        100: 'o',
+        150: 'h',
+        200: 'x',
+        250: '<',
+        300: 's',
+        350: '>',
+        400: '^',
+        450: '_',
+        500: 'v',
+        550: '2',
+        600: 'p',
+        650: 'H',
+        700: '.',
+        750: '+',
+        800: '1',
+        850: '8',
+        900: '3',
+        950: 'P',
+        1000: '*'
+        #'other': ',4X'
+    }
 
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
@@ -47,6 +74,9 @@ def extract_scenario(filename):
     # remove neff_ prefix if present
     name = name.replace("neff_", "")
 
+    # remove monitor_ prefix if present
+    name = name.replace("monitor_", "")
+
     # remove particle specification
     name = re.sub(r'_\d+p_', '_', name)
 
@@ -65,6 +95,14 @@ def extract_scenario(filename):
 # Necessity: A filename where every data is separate by "_" and where the run number is the last one
 # Produce: A string run wi9tch only contain the number of the run
 def extract_run (filename) :
+    '''
+    Action: Extract witch run procude the result from the file name \\
+    I/ filename: String \\
+    O/ run: String \\
+    Necessity: A filename where every data is separate by "_" and where the run number is the last one \\
+    Produce: A string run wi9tch only contain the number of the run
+    '''
+
     name = filename.replace(".txt", "")
     parts = name.split('_')
     run = parts[-1]
@@ -117,7 +155,7 @@ def calculate_navigation_metrics(est, gt):
     est_path_m = trajectory_length_xy(est[:, :2])
     gt_path_km = gt_path_m / 1000.0
     failure_events = count_failure_events(pos_errors, yaw_abs)
-    success = 1.0 if failure_events == 0 else 0.0
+    success = 1.0 if Success(est, gt) else 0.0
 
     recalls = {
         key: float(np.mean((pos_errors < pos_thr) & (yaw_abs < yaw_thr)))
@@ -135,6 +173,11 @@ def calculate_navigation_metrics(est, gt):
         ),
     }
 
+def Success(est, gt) :
+    err_pos = np.linalg.norm(est[-1, :2] - gt[-1, :2])
+    err_yaw = np.abs(est[-1][2] - gt[-1][2])
+    return err_pos< FAILURE_POS_THRESHOLD and err_yaw < FAILURE_YAW_THRESHOLD
+
 def extract_neff(filepath):
     neff = []
     try:
@@ -149,6 +192,41 @@ def extract_neff(filepath):
         print(f"Error opening {filepath} in extract_neff: {e}")
     return neff
 
+# Action: Extract cpu and memory monitoring from file
+# I/ filepath: String a path to file
+# O/ L_cpu: List of cpu use over time
+# O/ L_mem: List of memory use over time
+# Necessity: a valid file with three column (time cpu, memory) 
+#           separate by comma
+# Produce: two list of all valid data (no blanc value or 
+#           first 0 from cpu monitoring if present)
+def extract_monitor(filepath) :
+    '''
+    Action: Extract cpu and memory monitoring from file \\
+    I/ filepath: String a path to file \\
+    O/ L_cpu: List of cpu use over time \\
+    O/ L_mem: List of memory use over time \\
+    Necessity: a valid file with three column (time cpu, memory) separate by comma \\
+    Produce: two list of all valid data (no blanc value or first 0 from cpu monitoring if present)
+    '''
+
+    L_cpu = []
+    L_mem = []
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if not line:
+                    continue
+                t, cpu, mem = line.split(',')
+                if not (cpu == " " or mem == " " or t == 'time') :
+                    L_cpu.append(float(cpu.strip()))
+                    L_mem.append(int(float(mem.strip())))
+    except Exception as e:
+        print(f"Error opening {filepath} in extract_monitor: {e}")
+    if L_cpu[0] == 0 :
+        return L_cpu[1::], L_mem
+    return L_cpu, L_mem
+
 # Action: Classify one position/yaw error sample according to the recall thresholds.
 # I/ err_pos: Float position error in meters
 # I/ err_yaw: Float yaw error in radians
@@ -159,6 +237,18 @@ def extract_neff(filepath):
 #   - T3 if under threshold 3 and above/equal threshold 2
 #   - None if above threshold 3
 def classify_recall(err_pos, err_yaw):
+    '''
+    Action: Classify one position/yaw error sample according to the recall thresholds. \\
+    I/ err_pos: Float position error in meters \\
+    I/ err_yaw: Float yaw error in radians \\
+    O/ String "T1", "T2", "T3" or None \\
+    Produce:
+    - T1 if under threshold 1
+    - T2 if under threshold 2 and above/equal threshold 1
+    - T3 if under threshold 3 and above/equal threshold 2
+    - None if above threshold 3
+    '''
+
     error_pos = abs(float(err_pos))
     error_yaw = abs(float(err_yaw))
 
@@ -185,6 +275,14 @@ def classify_recall(err_pos, err_yaw):
 # Necessity: A file where every raw-data line follows time,error_pos,error_yaw.
 # Produce: one threshold class per valid line.
 def Recall_Rate(filepath):
+    '''
+    Action: Calculate the Recall Rate class at every step depending on the threshold. \\
+    I/ filepath: String \\
+    O/ RR: List of "T1", "T2", "T3" or None \\
+    Necessity: A file where every raw-data line follows time,error_pos,error_yaw. \\
+    Produce: one threshold class per valid line.
+    '''
+
     rr = []
     try:
         with open(filepath, 'r') as f:
@@ -204,11 +302,11 @@ def Recall_Rate(filepath):
     return rr
 
 def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
-    styles = styles or {} # What is it doing
+    styles = styles or {}
 
     plt.figure(figsize=(8, 6))
     path_type, measure = ( "Position", "(m)" ) if test == "pos" else ("Yaw", "(deg)")
-    stat_type = "Mean" if stat == "mean" else "Std Dev"
+    stat_type = "Mean +/- Std Dev" if stat == "mean" else "Std Dev"
      
     ylabel = f"{path_type} - {stat_type} {measure}"
     title = f"{path_type} RMSE {stat_type} vs Number of Particles - {scenario}"
@@ -221,27 +319,58 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
 
         particles = []
         stats = []
+        std_devs = []
         for particle_count in sorted(results.keys()):
             value = results[particle_count].get(f"{test}_{stat}")
             if value is None or np.isnan(value):
                 continue
             particles.append(particle_count)
             stats.append(value)
+            if stat == "mean":
+                std_value = results[particle_count].get(f"{test}_std")
+                if std_value is None or np.isnan(std_value):
+                    std_value = 0.0
+                std_devs.append(std_value)
 
         if not particles:
             continue
 
         style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-        plt.plot(
-            particles,
-            stats,
-            label=style['label'],
-            color=style['color'],
-            linestyle=style['linestyle'],
-            marker=style['marker'],
-            linewidth=2
-        )
+        if stat == "mean":
+            particles_arr = np.asarray(particles, dtype=float)
+            stats_arr = np.asarray(stats, dtype=float)
+            std_arr = np.asarray(std_devs, dtype=float)
+            lower = np.maximum(stats_arr - std_arr, 0.0)
+            upper = stats_arr + std_arr
+
+            plt.fill_between(
+                particles_arr,
+                lower,
+                upper,
+                color=style['color'],
+                alpha=0.18,
+                linewidth=0
+            )
+            plt.plot(
+                particles_arr,
+                stats_arr,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
+        else:
+            plt.plot(
+                particles,
+                stats,
+                label=style['label'],
+                color=style['color'],
+                linestyle=style['linestyle'],
+                marker=style['marker'],
+                linewidth=2
+            )
 
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
@@ -333,6 +462,7 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
             )
             
         plt.tight_layout()
+        plt.legend()
         #title = title.lower().replace(" ","")
         dir_name = f"{scenario}_recall_rates_{metric}.png"
         recall_plot_path = os.path.join(plots_dir, dir_name)
@@ -361,6 +491,16 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
 #           (x,y,yaw for example) of the best run then store it with name
 #           scenario_algo_qq_dimension.png
 def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
+    '''
+    Action: Plot the quantile-quantile diagram for the best run of each algo \\
+    I/ scenario: String \\
+    I/ best_per_algo: Dic {Str algo:Tuple (Int particle,Int rmse, Dic best_run {List est [[x],[y],[yaw]],List gt [[x],[y],[yaw]],Float mh OR None})} \\
+    I/ plots_dir: path-like object \\
+    O/ Nothing \\
+    Necessity: A dictionnary best_per_algo matching the spec and plots_dir a valid path \\
+    Produce: Per algo: a QQ plot per state variable dimension (x,y,yaw for example) of the best run then store it with name scenario_algo_qq_dimension.png
+    '''
+
     if not best_per_algo:
         return
     styles = styles or {}
@@ -392,16 +532,25 @@ def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-            sm.qqplot_2samples(gt_u, est_u,
-                line="45",
-                xlabel="Ground true",
-                ylabel="Estimated",
-                ax=ax[i, j]
-            )
-            ax[i, j].set_title(f"{style['label']} {particles}p {varr}")
-            ax[i, j].grid(True, linestyle='--', alpha=0.4)
-            j += 1
-
+            if nb_algo != 1:
+                sm.qqplot_2samples(gt_u, est_u,
+                    line="45",
+                    xlabel="Ground true",
+                    ylabel="Estimated", 
+                        ax=ax[i, j]
+                )
+                ax[i, j].set_title(f"{style['label']} {particles}p {varr}")
+                ax[i, j].grid(True, linestyle='--', alpha=0.4)
+                j += 1
+            else:
+                sm.qqplot_2samples(gt_u, est_u,
+                    line="45",
+                    xlabel="Ground true",
+                    ylabel="Estimated", 
+                        ax=ax[i]
+                )
+                ax[i].set_title(f"{style['label']} {particles}p {varr}")
+                ax[i].grid(True, linestyle='--', alpha=0.4)
         i += 1
 
     fig.suptitle(title)
@@ -426,6 +575,18 @@ def plot_QQ (scenario, best_per_algo, plots_dir, styles=None) :
 # Produce: A plot of the ESS for the best run per algo then store it with name
 #           scenario_ess_best.png
 def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
+    '''
+    Action: Plot the effective sample size vs time diagram for the best run of each algo \\
+    I/ scenario: String \\
+    I/ best_info: Dicionnary of witch nb_of_particule and run was the best for every algo \\
+    I/ data_metrics: Dictionnary of the metrics collected for every run \\
+    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ styles: Dictionnary that record the style to use for each algo \\
+    O/ Nothing \\
+    Necessity: A dictionnary data_metrics matching the spec in main(); plots_dir a valid path; scenario a valid senario and best_info matching the output of unpack_best_per_algo \\
+    Produce: A plot of the ESS for the best run per algo then store it with name scenario_ess_best.png
+    '''
+
     if not best_info:
         print(f"No best-run information available for ESS plot: {scenario}")
         return
@@ -437,7 +598,7 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
 
     plt.title(title)
     plt.xlabel("Time (iteration)")
-    plt.ylabel("Effective Sample Size (number of particle)")
+    plt.ylabel("Effective Sample Size/number of particles (number of particle)")
 
     plot_path = os.path.join(plots_dir, f"{scenario}_ess_best.png")
     plotted = False
@@ -483,6 +644,251 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"ESS plot saved at: {plot_path}")
+
+# Action: Plot the use of cpu or memory for a run over timestep
+# I/ metric: String
+# I/ scenario: String
+# I/ best_info: Dicionnary of witch nb_of_particule and run 
+#               was the best for every algo
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           plots_dir a valid path,
+#           scenario a valid senario
+#           best_info matching the output of unpack_best_per_algo
+#           and metric to be "cpu_use" or "memory_use"
+# Produce: One plot of the metric over time with every run stored in best_info
+#           saved as scenario_metric_best.png
+def plot_monitoring(metric, scenario, best_info, data_metrics, plots_dir, styles) :
+    '''
+    Action: Plot the use of cpu or memory for a run over timestep \\
+    I/ metric: String \\
+    I/ scenario: String \\
+    I/ best_info: Dicionnary of witch nb_of_particule and run was the best for every algo \\
+    I/ data_metrics: Dictionnary of the metrics collected for every run \\
+    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ styles: Dictionnary that record the style to use for each algo \\
+    O/ Nothing \\
+    Necessity: A dictionnary data_metrics matching the spec in main(); plots_dir a valid path; scenario a valid senario; best_info matching the output of unpack_best_per_algo and metric to be "cpu_use" or "memory_use" \\
+    Produce: One plot of the metric over time with every run stored in best_info saved as scenario_metric_best.png
+    '''
+
+    if not best_info:
+        print(f"No best-run information available for monitoring plot: {scenario}")
+        return
+
+    D_metrics = {
+        "cpu_use": "CPU use (% of one cpu)",
+        "memory_use": "Memory use (in MByte)"
+    }
+
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    title = f"{metric} vs timestep - {scenario}"
+
+    plt.title(title)
+    plt.xlabel("Timestep")
+    plt.ylabel(f"{D_metrics[metric]}")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_{metric}_best.png")
+    plotted = False
+
+    for algo, (particles, run) in best_info.items():
+        data = data_metrics[scenario][algo][particles][run].get(metric, [])
+        if not data:
+            print(f"Warning: No {metric} data for {scenario} | {algo} | {particles}p | run {run}")
+            continue
+        if metric == "memory_use" :
+            data = [val * 10e-6 for val in data]
+
+        style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+        plt.plot(
+            data,
+            label=style['label']+f" {particles}p",
+            color=style['color'],
+            linestyle=style['linestyle'],
+            linewidth=2
+        )
+        plotted = True
+
+    if not plotted:
+        plt.close()
+        print(f"No {metric} plot generated for {scenario}: no {metric} samples found.")
+        return
+
+    if metric == "memory_use" : plt.yscale('log')
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"{metric} plot saved at: {plot_path}")
+
+# Action: Plot the mean use of memory over rmse
+# I/ scenario: String
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ data: Dictionary of metrics saved for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics and data matching the spec in main(),
+#           plots_dir a valid path,
+#           and scenario a valid senario
+# Produce: for every number of particle, one plot of the mean memory use over 
+#           rmse of each configuartion in data_metrics stored in best_info
+#           saved as scenario_mem_rmse_particle.png
+def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
+    '''
+    Action: Plot the mean use of memory over rmse \\
+    I/ scenario: String \\
+    I/ data_metrics: Dictionnary of the metrics collected for every run \\
+    I/ data: Dictionary of metrics saved for every run \\
+    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ styles: Dictionnary that record the style to use for each algo \\
+    O/ Nothing \\
+    Necessity: A dictionnary data_metrics and data matching the spec in main(); plots_dir a valid path and scenario a valid senario \\
+    Produce: for every number of particle, one plot of the mean memory use over rmse of each configuartion in data_metrics stored in best_info saved as scenario_mem_rmse_particle.png
+    '''
+
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    list_algo = [algo for algo in data_metrics[scenario]]
+    list_particles = [particles for particles in data_metrics[scenario][list_algo[0]]]
+
+    for particles in list_particles :
+
+        title = f"Memory use vs RMSE - {particles}p - {scenario}"
+
+        plt.title(title)
+        plt.xlabel("Position RMSE (m)")
+        plt.ylabel("Memory use (MB)")
+
+        plot_path = os.path.join(plots_dir, f"{scenario}_mem_rmse_{particles}p.png")
+        plotted = False     
+    
+        for algo in list_algo :
+            list_mem = []
+            list_rmse = []
+            for run in data_metrics[scenario][algo][particles] :
+                mem = data_metrics[scenario][algo][particles][run].get("memory_use")
+                list_mem.append(np.mean(mem) * 10e-6)
+                list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1]) 
+
+            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+            plt.scatter(
+                y=list_mem,
+                x=list_rmse,
+                label=style['label']+f" {particles}p",
+                color=style['color'],
+            )
+            plotted = True
+
+        if not plotted:
+            plt.close()
+            print(f"No mem-rmse plot generated for {scenario}: no samples found.")
+            return
+
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print(f"mem-rmse plot saved at: {plot_path}")
+
+# Action: Plot the use of cpu or memory for a run over rmse
+# I/ metric: String
+# I/ scenario: String
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ data: Dictionary of metrics saved for every run
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for each algo
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           plots_dir a valid path,
+#           scenario a valid senario
+#           data matching the output of unpack_best_per_algo
+#           and metric to be "cpu_use" or "memory_use"
+# Produce: One plot of the metric over rmse with one color per algorithms and
+#           one shape per number of particle saved as scenario_metric_rmse_all.png
+def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plots_dir, styles) :
+    '''
+    Action: Plot the use of cpu or memory for a run over rmse \\
+    I/ metric: String \\
+    I/ scenario: String \\
+    I/ data_metrics: Dictionnary of the metrics collected for every run \\
+    I/ data: Dictionary of metrics saved for every run \\
+    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ styles: Dictionnary that record the style to use for each algo \\
+    O/ Nothing \\
+    Necessity: A dictionnary data_metrics matching the spec in main(); plots_dir a valid path; scenario a valid senario; data matching the output of unpack_best_per_algo and metric to be "cpu_use" or "memory_use" \\
+    Produce: One plot of the metric over rmse with one color per algorithms and one shape per number of particle saved as scenario_metric_rmse_all.png
+    '''
+
+    D_metrics = {
+        "cpu_use": "CPU use (% of one cpu)",
+        "memory_use": "Memory use (in MByte)"
+    }
+
+    styles = styles or {}
+    plt.figure(figsize=(8, 6))
+
+    title = f"{metric} use vs RMSE - {scenario}"
+    plt.title(title)
+    plt.xlabel("Position RMSE (m)")
+    plt.ylabel(f"{D_metrics[metric]}")
+
+    plot_path = os.path.join(plots_dir, f"{scenario}_{metric}_rmse_all.png")
+    plotted = False     
+
+    list_algo = [algo for algo in data_metrics[scenario]]
+    list_particles = [particles for particles in data_metrics[scenario][list_algo[0]]]
+    list_particles.sort()
+
+    for algo in list_algo :
+        for particles in list_particles :
+            list_data = []
+            list_rmse = []
+            for run in data_metrics[scenario][algo][particles] :
+                val = data_metrics[scenario][algo][particles][run].get(metric)
+                if metric == 'memory_use' :
+                    list_data.append(np.mean(val) * 10e-6)
+                else :
+                    list_data.append(np.mean(val))
+                list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
+
+            style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
+
+            plt.scatter(
+                y=list_data,
+                x=list_rmse,
+                color=style['color'],
+                marker=STYLE_MARKER[particles]
+            )
+            plotted = True
+
+    if not plotted:
+        plt.close()
+        print(f"No {metric}-rmse plot generated for {scenario}: no samples found.")
+        return
+
+    handles = []
+    for entry in list_particles :
+        handles.append(mlines.Line2D([], [], color='black', marker=STYLE_MARKER[entry], label=f"{entry}p", linewidth=0))
+    for entry in list_algo :
+        handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
+    
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend(handles=handles)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=200)
+    plt.close()
+    print(f"{metric}-rmse plot saved at: {plot_path}")
 
 def calculate_yaw_rmse(est, gt):
     
@@ -796,14 +1202,17 @@ def process_results_dir(results_dir, results_root):
     # Data structure:
     # data_metrics[scenario][algorithm][particles][run] = {
     #     "recall_rate": [...],
-    #     "effective_sample_size": [...]
+    #     "effective_sample_size": [...],
+    #     ...
     # }
     # This keeps per-run diagnostics such as ESS/Neff while `data` stores
     # aggregated metrics used in plots and the HTML report.
     data_metrics = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
         "recall_rate": None,
         "effective_sample_size": [],
-        "success": None
+        "success": None,
+        "cpu_use": [],
+        "memory_use": []
     }))))
 
     for filename in os.listdir(results_dir):
@@ -850,6 +1259,19 @@ def process_results_dir(results_dir, results_root):
             if algo and particles:
                 data_metrics[scenario][algo][particles][run]["effective_sample_size"] = extract_neff(file_path)
                 print(f"Loaded ESS: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
+        
+        elif filename.startswith("monitor_"):
+            algo = extract_algorithm(filename)
+            particles = extract_particles(filename)
+            scenario = extract_scenario(filename)
+            run = extract_run(filename)
+
+            if algo and particles:
+                print(f"{filename}")
+                cpu, mem = extract_monitor(file_path)
+                data_metrics[scenario][algo][particles][run]["cpu_use"] = cpu
+                data_metrics[scenario][algo][particles][run]["memory_use"] = mem
+                print(f"Loaded cpu and memory usage from: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
 
         else:
             algo = extract_algorithm(filename)
@@ -868,9 +1290,6 @@ def process_results_dir(results_dir, results_root):
                     )
 
                 data_metrics[scenario][algo][particles][run]["recall_rate"] = Recall_Rate(file_path)
-                #file_success = Success(file_path)
-                #if file_success is not None:
-                #    data_metrics[scenario][algo][particles][run]["success"] = file_success
 
     if not data:
         print(f"No valid data found in {results_dir}.")
@@ -946,6 +1365,11 @@ def process_results_dir(results_dir, results_root):
             styles=styles
         )
 
+        #plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
+        
+        plot_monitoring_vs_rmse_all_in_one("memory_use", scenario, data_metrics, data, plots_dir, styles)
+        plot_monitoring_vs_rmse_all_in_one("cpu_use", scenario, data_metrics, data, plots_dir, styles)
+
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
         best_per_algo, best_info = unpack_best_per_algo(summary_path, trajectories, scenario)
@@ -967,6 +1391,8 @@ def process_results_dir(results_dir, results_root):
 
         plot_ess (scenario, best_info, data_metrics, plots_dir, styles)
 
+        #plot_monitoring("cpu_use", scenario, best_info, data_metrics, plots_dir, styles)
+        #plot_monitoring("memory_use", scenario, best_info, data_metrics, plots_dir, styles)
         
     generate_html_report(data, plots_dir, True, report_label)
 
@@ -998,12 +1424,13 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     body {font-family: Arial; margin:40px;}
     h1 {color:#2c3e50;}
     h2 {margin-top:40px; color:#2980b9;}
-    table {border-collapse: collapse; margin-top:15px;}
+    table {border-collapse: collapse; margin-top:40px; width:100%;}
     th, td {border:1px solid #ccc; padding:6px 12px; text-align:center;}
     th {background:#f2f2f2;}
     .best {background:#c8f7c5; font-weight:bold;}
-    img {margin-top:20px;}
+    img {margin-top:20px; max-width:100%; height:100%;}
     .metric {font-size: 0.9em; color: #444;}
+
     </style>
     </head>
     <body>
@@ -1026,33 +1453,39 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         best_path_yaw_plot = f"{scenario}_best_paths_all_yaw.png"
         mh_rate_plot = f"{scenario}_mh_rate_all.png"
         success_plot = f"{scenario}_success_rate.png"
+        failure_plot = f"{scenario}_failure_rate.png"
         spl_plot = f"{scenario}_spl.png"
         recall_plot_t1 = f"{scenario}_recall_rates_recall_t1.png"
         recall_plot_t2 = f"{scenario}_recall_rates_recall_t2.png"
         recall_plot_t3 = f"{scenario}_recall_rates_recall_t3.png"
-        failure_plot = f"{scenario}_failure_rate.png"
+        cpu_rmse_plot = f"{scenario}_cpu_use_rmse_all.png"
+        memory_rmse_plot = f"{scenario}_memory_use_rmse_all.png"
         prefix = "" if same_dir else "plots/"
 
         html += f"""
         <div style="display:grid; grid-template-columns:repeat(3, 1fr); width:100%">
-            <img style="max-width:100%; height:100%" src="{prefix}{ate_curve_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{rmse_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{std_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_path_yaw_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{yaw_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{std_yaw_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{success_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{spl_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t1}">
-            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t2}">
-            <img style="max-width:100%; height:100%" src="{prefix}{recall_plot_t3}">
-            <img style="max-width:100%; height:100%" src="{prefix}{failure_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{mh_rate_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_path_plot}">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_ess_plot}">
+            <img src="{prefix}{ate_curve_plot}">
+            <img src="{prefix}{rmse_plot}">
+            <img src="{prefix}{std_plot}">
+            <img src="{prefix}{best_path_yaw_plot}">
+            <img src="{prefix}{yaw_plot}">
+            <img src="{prefix}{std_yaw_plot}">
+            <img src="{prefix}{success_plot}">
+            <img src="{prefix}{spl_plot}">
+            <img src="{prefix}{failure_plot}">
+            <img src="{prefix}{recall_plot_t1}">
+            <img src="{prefix}{recall_plot_t2}">
+            <img src="{prefix}{recall_plot_t3}">
+            <img src="{prefix}{mh_rate_plot}">
+            <img src="{prefix}{best_path_plot}">
+            <img src="{prefix}{best_ess_plot}">
         </div>
         <div style="display:grid; grid-template-columns:1fr; width:100%">
-            <img style="max-width:100%; height:100%" src="{prefix}{best_qq}">
+            <img src="{prefix}{best_qq}">
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:100%">
+            <img src="{prefix}{cpu_rmse_plot}">
+            <img src="{prefix}{memory_rmse_plot}">
         </div>
         """
 
@@ -1064,7 +1497,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
 
         algorithms = sorted(scenario_data.keys())
 
-        html += "<table>"
+        html += """<table style="width:100%">"""
         html += "<tr><th>Particles</th>"
 
         for algo in algorithms:

@@ -5,10 +5,8 @@
 #   ./run_all_modes.sh file.bag       # run only that bag
 #   ./run_all_modes.sh bags_folder/   # run all bags in that folder
 
-MODES=("MCL" "MHMCL" "MHAMCL" "AMCL" "AMHMCL" "AMHAMCL")
-#MODES=("MCL" "MHMCL" "AMHMCL")
-#MODES=("AMCL" "MHAMCL" "AMHAMCL")
-SCENARIOS=("C" "M" "A")
+MODES=("MCL" "MHMCL" "AMCL" "MHAMCL")
+SCENARIOS=("M")  # Use ("C" "M" "A") to compare conservative/medium/aggressive profiles.
 
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
@@ -16,18 +14,37 @@ PARAMS_DIR="$(rospack find mcmh_localization)/params"
 REPEATS=30   # number of repeats per scenario
 mkdir -p "$RESULTS_DIR"
 
-scenario_param_file() {
+scenario_profile() {
     case "$1" in
-        C) echo "$PARAMS_DIR/amhmcl_conservative.yaml" ;;
-        M) echo "$PARAMS_DIR/amhmcl_medium.yaml" ;;
-        A) echo "$PARAMS_DIR/amhmcl_aggressive.yaml" ;;
-        *)  if test -f "$PARAMS_DIR/$1"; then
-                echo "$PARAMS_DIR/$1"
-            else
-                echo "Error: scenario '$1' is not on '$PARAMS_DIR'. Use C, M, A or a valid file." >&2
-                exit 1
-            fi ;;
+        C) echo "conservative" ;;
+        M) echo "medium" ;;
+        A) echo "aggressive" ;;
+        *) echo "$1" ;;
     esac
+}
+
+mode_param_file() {
+    local MODE="$1"
+    local SCENARIO="$2"
+    local PROFILE
+    local MODE_LC
+    local CANDIDATE
+
+    PROFILE="$(scenario_profile "$SCENARIO")"
+    MODE_LC="$(printf '%s' "$MODE" | tr '[:upper:]' '[:lower:]')"
+    CANDIDATE="$PARAMS_DIR/${MODE_LC}_${PROFILE}.yaml"
+
+    if test -f "$CANDIDATE"; then
+        echo "$CANDIDATE"
+    elif test -f "$PARAMS_DIR/amhmcl_${PROFILE}.yaml"; then
+        echo "$PARAMS_DIR/amhmcl_${PROFILE}.yaml"
+    elif test -f "$PARAMS_DIR/$SCENARIO"; then
+        echo "$PARAMS_DIR/$SCENARIO"
+    else
+        echo "Error: parameter file not found for mode '$MODE' and scenario '$SCENARIO'." >&2
+        echo "Expected: $CANDIDATE" >&2
+        exit 1
+    fi
 }
 
 for SCENARIO in "${SCENARIOS[@]}"; do
@@ -70,19 +87,15 @@ fi
 
 
 for SCENARIO in "${SCENARIOS[@]}"; do
-    PARAM_FILE="$(scenario_param_file "$SCENARIO")"
     SCENARIO_RESULTS_DIR="$RESULTS_DIR/$SCENARIO"
-
-    if [ ! -f "$PARAM_FILE" ]; then
-        echo "Error: parameter file not found: $PARAM_FILE"
-        exit 1
-    fi
 
     for BAG in "${BAGS[@]}"; do
         BAG_NAME=$(basename "$BAG" .bag)
         for MODE in "${MODES[@]}"; do
+            PARAM_FILE="$(mode_param_file "$MODE" "$SCENARIO")"
             for ((i=1; i<=REPEATS; i++)); do
-                echo -e "\n\n=== Running scenario $SCENARIO | $MODE with $BAG (run $i/$REPEATS) ===\n\n"
+                echo -e "\n\n=== Running scenario $SCENARIO | $MODE with $BAG (run $i/$REPEATS) ==="
+                echo -e "Params: $PARAM_FILE\n"
                 export BAG_FILE="$BAG"
                 RESULT_NAME="${BAG_NAME}_${MODE}_run${i}"
 
