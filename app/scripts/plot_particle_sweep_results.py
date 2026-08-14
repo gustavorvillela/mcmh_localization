@@ -1638,10 +1638,10 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         <div style="display:grid; grid-template-columns:repeat(3, 1fr); width:100%">
             <img src="{prefix}{ate_curve_plot}">
             <img src="{prefix}{rmse_plot}">
-            <img src="{prefix}{std_plot}">
+            <!-- <img src="{prefix}{std_plot}"> -->
             <img src="{prefix}{best_path_yaw_plot}">
             <img src="{prefix}{yaw_plot}">
-            <img src="{prefix}{std_yaw_plot}">
+            <!-- <img src="{prefix}{std_yaw_plot}"> -->
             <img src="{prefix}{success_plot}">
             <img src="{prefix}{spl_plot}">
             <img src="{prefix}{failure_plot}">
