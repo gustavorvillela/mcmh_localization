@@ -9,7 +9,7 @@
   <arg name="y_pos" default="-1.0"/>
 
   <!-- Localization mode -->
-  <arg name="mode" default="AMCL"/>
+  <arg name="mode" default="MCL"/>
 
   <!-- Gazebo with map and TurtleBot -->
   <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_$(arg world).launch"> 

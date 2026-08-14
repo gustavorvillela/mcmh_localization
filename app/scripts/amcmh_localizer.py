@@ -683,7 +683,7 @@ class AMCMHLocalizer:
             particles_prop = apply_random_walk_parallel(particles_prev,alpha_rw,
                                                         self.map_data, self.resolution,
                                                         self.origin_np[0], self.origin_np[1],
-                                                        self.width,self.height, self.Nr)
+                                                        self.width,self.height, 1)
 
             #particles_prev[:,2] = particles_prev[:,2]                                   
             
