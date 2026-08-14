@@ -213,6 +213,7 @@ def extract_neff(filepath):
 # I/ filepath: String a path to file
 # O/ L_cpu: List of cpu use over time
 # O/ L_mem: List of memory use over time
+# O/ delta_t_run: Float of the time of the run in seconds
 # Necessity: a valid file with three column (time cpu, memory) 
 #           separate by comma
 # Produce: two list of all valid data (no blanc value or 
@@ -223,12 +224,15 @@ def extract_monitor(filepath) :
     I/ filepath: String a path to file \\
     O/ L_cpu: List of cpu use over time \\
     O/ L_mem: List of memory use over time \\
+    O/ delta_t_run: Float of the time of the run in seconds \\
     Necessity: a valid file with three column (time cpu, memory) separate by comma \\
     Produce: two list of all valid data (no blanc value or first 0 from cpu monitoring if present)
     '''
 
     L_cpu = []
     L_mem = []
+    L_tmp = []
+    delta_t_run = 0
     try:
         with open(filepath, 'r') as f:
             for line in f:
@@ -236,13 +240,15 @@ def extract_monitor(filepath) :
                     continue
                 t, cpu, mem = line.split(',')
                 if not (cpu == " " or mem == " " or t == 'time') :
+                    L_tmp.append(int(t))
                     L_cpu.append(float(cpu.strip()))
                     L_mem.append(int(float(mem.strip())))
     except Exception as e:
         print(f"Error opening {filepath} in extract_monitor: {e}")
+    delta_t_run = (L_tmp[-1] - L_tmp[0]) * 1e-9
     if L_cpu[0] == 0 :
-        return L_cpu[1::], L_mem
-    return L_cpu, L_mem
+        return delta_t_run, L_cpu[1::], L_mem
+    return delta_t_run, L_cpu, L_mem
 
 # Action: Classify one position/yaw error sample according to the recall thresholds.
 # I/ err_pos: Float position error in meters
@@ -847,7 +853,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     '''
 
     D_metrics = {
-        "cpu_use": "CPU use (% of one cpu)",
+        "cpu_use": "CPU equivalent time use (in seconds)",
         "memory_use": "Memory use (in MByte)"
     }
 
@@ -874,8 +880,8 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
                 val = data_metrics[scenario][algo][particles][run].get(metric)
                 if metric == 'memory_use' :
                     list_data.append(np.mean(val) * 1e-6)
-                else :
-                    list_data.append(np.mean(val))
+                elif metric == 'cpu_use' :
+                    list_data.append(np.mean(val) * data_metrics[scenario][algo][particles][run].get('time') / 100)
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
@@ -1228,7 +1234,8 @@ def process_results_dir(results_dir, results_root):
         "effective_sample_size": [],
         "success": None,
         "cpu_use": [],
-        "memory_use": []
+        "memory_use": [],
+        "time":None
     }))))
 
     for filename in os.listdir(results_dir):
@@ -1284,9 +1291,10 @@ def process_results_dir(results_dir, results_root):
 
             if algo and particles:
                 print(f"{filename}")
-                cpu, mem = extract_monitor(file_path)
+                t, cpu, mem = extract_monitor(file_path)
                 data_metrics[scenario][algo][particles][run]["cpu_use"] = cpu
                 data_metrics[scenario][algo][particles][run]["memory_use"] = mem
+                data_metrics[scenario][algo][particles][run]["time"] = t
                 print(f"Loaded cpu and memory usage from: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
 
         else:
