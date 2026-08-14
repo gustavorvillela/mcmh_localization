@@ -7,6 +7,7 @@ from collections import defaultdict
 import statsmodels.api as sm
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
+import matplotlib.ticker as ticker
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
@@ -53,6 +54,31 @@ STYLE_MARKER = {
         1000: '*'
         #'other': ',4X'
     }
+ALGO_SUPER = '3MCL'
+STYLE_SUPER = {
+    'color':{
+        '10':"#E69F00",
+        '20':"#56B4E9",
+        '30':"#009E73",
+        '40':"#F0E442",
+        '50':"#0072B2",
+        '60':"#D55E00",
+        '70':"#CC79A7",
+        '80':"#000000",
+    },
+    'marker':{
+        50: '|',
+        100: 'o',
+        150: 'h',
+        200: 'x',
+        250: '<',
+        300: 's',
+        350: '>',
+        400: '^',
+        450: '_',
+        500: 'v'
+    }
+}
 
 def extract_particles(filename):
     match = re.search(r'_(\d+)p_', filename)
@@ -121,6 +147,12 @@ def extract_rmse(filepath):
     except Exception as e:
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
+
+def extract_random_steps(config_dir):
+    return config_dir.split('/')[-1]
+
+def extract_config(config_dir):
+    return config_dir.split('/')[-2]
 
 def normalize_yaw(angle):
     return np.arctan2(np.sin(angle), np.cos(angle))
@@ -423,9 +455,9 @@ def plot_sweep_metric(data, scenario, plot_path, metric, ylabel, title, styles=N
 def plot_recall_rates(data, scenario, plots_dir, styles=None):
     styles = styles or {}
     recall_specs = [
-        ("recall_t1", "T1: <0.25 m, <2 deg"),
-        ("recall_t2", "T2: <0.50 m, <5 deg"),
-        ("recall_t3", "T3: <5.00 m, <10 deg"),
+        ("recall_t1", f"T1: <{RECALL_THRESHOLDS['recall_t1'][0]} m, <{round(np.rad2deg(RECALL_THRESHOLDS['recall_t1'][1]))} deg"),
+        ("recall_t2", f"T2: <{RECALL_THRESHOLDS['recall_t2'][0]} m, <{round(np.rad2deg(RECALL_THRESHOLDS['recall_t2'][1]))} deg"),
+        ("recall_t3", f"T3: <{RECALL_THRESHOLDS['recall_t3'][0]} m, <{round(np.rad2deg(RECALL_THRESHOLDS['recall_t3'][1]))} deg")
     ]
 
     for (metric, title) in recall_specs:
@@ -463,7 +495,6 @@ def plot_recall_rates(data, scenario, plots_dir, styles=None):
             
         plt.tight_layout()
         plt.legend()
-        #title = title.lower().replace(" ","")
         dir_name = f"{scenario}_recall_rates_{metric}.png"
         recall_plot_path = os.path.join(plots_dir, dir_name)
         plt.savefig(recall_plot_path, dpi=200)
@@ -806,7 +837,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
 # I/ scenario: String
 # I/ data_metrics: Dictionnary of the metrics collected for every run
 # I/ data: Dictionary of metrics saved for every run
-# I/ plots_dir: path-like object to save the lot at right place
+# I/ plots_dir: path-like object to save the plot at right place
 # I/ styles: Dictionnary that record the style to use for each algo
 # O/ Nothing
 # Necessity: A dictionnary data_metrics matching the spec in main(),
@@ -823,7 +854,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     I/ scenario: String \\
     I/ data_metrics: Dictionnary of the metrics collected for every run \\
     I/ data: Dictionary of metrics saved for every run \\
-    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ plots_dir: path-like object to save the plot at right place \\
     I/ styles: Dictionnary that record the style to use for each algo \\
     O/ Nothing \\
     Necessity: A dictionnary data_metrics matching the spec in main(); plots_dir a valid path; scenario a valid senario; data matching the output of unpack_best_per_algo and metric to be "cpu_use" or "memory_use" \\
@@ -838,10 +869,10 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     styles = styles or {}
     plt.figure(figsize=(8, 6))
 
-    title = f"{metric} use vs RMSE - {scenario}"
+    title = f"RMSE vs {metric} use - {scenario}"
     plt.title(title)
-    plt.xlabel("Position RMSE (m)")
-    plt.ylabel(f"{D_metrics[metric]}")
+    plt.ylabel("Position RMSE (m)")
+    plt.xlabel(f"{D_metrics[metric]}")
 
     plot_path = os.path.join(plots_dir, f"{scenario}_{metric}_rmse_all.png")
     plotted = False     
@@ -857,7 +888,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
             for run in data_metrics[scenario][algo][particles] :
                 val = data_metrics[scenario][algo][particles][run].get(metric)
                 if metric == 'memory_use' :
-                    list_data.append(np.mean(val) * 10e-6)
+                    list_data.append(np.mean(val) * 1e-6)
                 else :
                     list_data.append(np.mean(val))
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
@@ -865,8 +896,8 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
             plt.scatter(
-                y=list_data,
-                x=list_rmse,
+                y=list_rmse,
+                x=list_data,
                 color=style['color'],
                 marker=STYLE_MARKER[particles]
             )
@@ -882,7 +913,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
         handles.append(mlines.Line2D([], [], color='black', marker=STYLE_MARKER[entry], label=f"{entry}p", linewidth=0))
     for entry in list_algo :
         handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
-    
+
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
@@ -1313,6 +1344,8 @@ def process_results_dir(results_dir, results_root):
                 p: summarize_metric_bucket(p_dict[p])
                 for p in sorted(p_dict.keys())
             }
+            if algo == ALGO_SUPER:
+                get_data_super(results_dir, scenario, p_dict.keys(), data, data_metrics)
         
         # --- Plot everything for this scenario 
         pos_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
@@ -1396,6 +1429,129 @@ def process_results_dir(results_dir, results_root):
         
     generate_html_report(data, plots_dir, True, report_label)
 
+# Action: Add the monitored data into global dictionnary
+# I/ results_dir: path-like object to the analysed file
+# I/ scenario: String
+# I/ d_particles: Dictionnary of number of particles
+# I/ data_metrics: Dictionnary of the metrics collected for every run
+# I/ data: Dictionary of metrics saved for every run
+# I/ algo=ALGO_SUPER: String
+# O/ Nothing
+# Necessity: A dictionnary data_metrics matching the spec in main(),
+#           results_dir a valid path,
+#           scenario a valid senario,
+#           data matching the output of unpack_best_per_algo,
+#           d_particles having all and every number of particles as keys,
+#           and algo the algorithms to study
+# Produce: Add in data_super the memory, cpu and rmse for each run of this algo
+def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=ALGO_SUPER):
+    '''
+    Action: Add the monitored data into global dictionnary \\
+    I/ results_dir: path-like object to the analysed file \\
+    I/ scenario: String \\
+    I/ d_particles: Dictionnary of number of particles \\
+    I/ data_metrics: Dictionnary of the metrics collected for every run \\
+    I/ data: Dictionary of metrics saved for every run \\
+    I/ algo=ALGO_SUPER: String \\
+    O/ Nothing \\
+    Necessity: A dictionnary data_metrics matching the spec in main(), results_dir a valid path, scenario a valid senario, data matching the output of unpack_best_per_algo, d_particles having all and every number of particles as keys, and algo the algorithms to study \\
+    Produce: Add in data_super the memory, cpu and rmse for each run of this algo
+    '''
+
+    global data_super
+
+    config = extract_config(results_dir)
+    nb_steps = extract_random_steps(results_dir)
+
+    for particles in d_particles:
+        memo = [np.mean(data_metrics[scenario][algo][particles][run].get('memory_use')) for run in data_metrics[scenario][algo][particles]]
+        cpu = [np.mean(data_metrics[scenario][algo][particles][run].get('cpu_use')) for run in data_metrics[scenario][algo][particles]]
+        rmse = data[scenario][algo][particles]["pos"].copy()
+        data_super[config][nb_steps][particles] = (memo, cpu, rmse)
+
+# Action: Plot the choiced monitoring over rmse
+# I/ metric: String
+# I/ plots_dir: path-like object to save the lot at right place
+# I/ styles: Dictionnary that record the style to use for particles and
+#           number of random_steps
+# O/ Nothing
+# Necessity: plots_dir a valid path
+#           and metric to be "cpu_use", "memory_use", "mean_cpu_use" or
+#               "mean_memory_use"
+# Produce: One plot of the metric over rmse saved as 
+#           {config}_{ALGO_SUPER}_{metric}-rmse.png if ALGO_SUPER not ''
+def plot_super(metric, plot_dir, style=STYLE_SUPER):
+    '''
+    Action: Plot the choiced monitoring over rmse \\
+    I/ metric: String \\
+    I/ plots_dir: path-like object to save the lot at right place \\
+    I/ styles: Dictionnary that record the style to use for particles and number of random_steps \\
+    O/ Nothing \\
+    Necessity: plots_dir a valid path and metric to be "cpu_use", "memory_use", "mean_cpu_use" or "mean_memory_use" \\
+    Produce: One plot of the metric over rmse saved as {config}_{ALGO_SUPER}_{metric}-rmse.png if ALGO_SUPER not ''
+    '''
+
+    global data_super
+
+    if ALGO_SUPER == '':
+        return
+
+    plt.figure(figsize=(8, 6))
+
+    plt.title(f"{ALGO_SUPER} - {metric.replace('_', ' ').upper()} vs RMSE for diffrents number of random_steps and number of particle")
+    plt.xlabel("Position RMSE (m)")
+
+    list_particles = []
+    list_config = data_super.keys()
+    for config in list_config:
+        list_nb_step = data_super[config].keys()
+        for nb_steps in list_nb_step :
+            list_part = data_super[config][nb_steps].keys()
+            for particles in list_part:
+                if particles not in list_particles:
+                    list_particles.append(particles)
+                x = data_super[config][nb_steps][particles][-1]
+                if metric == "memory_use" :
+                    y = [val * 1e-6 for val in data_super[config][nb_steps][particles][0]]
+                    plt.ylabel("Memory use (MBytes)")
+                elif metric == "cpu_use" :
+                    y = [val for val in data_super[config][nb_steps][particles][1]]
+                    plt.ylabel("CPU use (Percentage for one cpu)")
+                elif metric == "mean_cpu_use" :
+                    y = np.mean([val for val in data_super[config][nb_steps][particles][1]])
+                    x = np.mean(x)
+                    plt.ylabel("Mean CPU use (Percentage for one cpu)")
+                    plt.xlabel("Mean position RMSE (m)")
+                elif metric == "mean_memory_use" :
+                    y = np.mean([val * 1e-6 for val in data_super[config][nb_steps][particles][0]])
+                    x = np.mean(x)
+                    plt.ylabel("Mean memory use (MBytes)")
+                    plt.xlabel("Mean position RMSE (m)")
+                
+                plt.scatter(
+                    x=x,
+                    y=y,
+                    color=style['color'][nb_steps],
+                    marker=style['marker'][particles]
+                )
+
+        handles = []
+        list_particles.sort()
+        for entry in list_particles :
+            handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=str(entry)+' particles', linewidth=0))
+        for entry in list_nb_step :
+            handles.append(mpatches.Patch(color=style['color'][entry], label=str(entry)+' random_steps'))
+
+        plot_path = os.path.join(plot_dir, f"{config}_{ALGO_SUPER}_{metric}-rmse.png")
+        plt.xlim(left=0)
+        plt.grid(True, linestyle='--', alpha=0.4)
+        plt.legend(handles=handles)
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print(f"{ALGO_SUPER} {metric} memory-rmse plot saved at: {plot_path}")
+
+
 def main():
     results_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../results'))
     if not os.path.exists(results_root):
@@ -1407,9 +1563,25 @@ def main():
         print("No valid data found.")
         return
 
+    global data_super 
+    data_super = {}
+
     for results_dir in result_dirs:
         print(f"\nProcessing particle sweep plots in: {results_dir}")
+
+        config = extract_config(results_dir)
+        if config not in data_super.keys() :
+            data_super[config] = {}
+        step = extract_random_steps(results_dir)
+        if step not in data_super[config].keys() :
+            data_super[config][step] = {}
         process_results_dir(results_dir, results_root)
+
+    results_root = os.path.join(results_root, "plots")
+    plot_super("memory_use", results_root)
+    plot_super("cpu_use", results_root)
+    plot_super("mean_memory_use", results_root)
+    plot_super("mean_cpu_use", results_root)
 
 def generate_html_report(all_data, results_dir, same_dir=False, report_label=None):
 

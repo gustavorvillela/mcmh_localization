@@ -6,17 +6,18 @@
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
 MODES=("MCL" "MHMCL" "3MCL")   # Can adjust as desired
-PARTICLE_COUNTS=(100 300 500 750 1000)  # particle counts to test
-SCENARIOS=("M")  # C=Conservative, M=Medium, A=Aggressive
+PARTICLE_COUNTS=(50 100 300 500)  # particle counts to test
+STEPS_COUNTS=(10)  # particle counts to test
+SCENARIOS=(M)  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
 REPEATS=10   # number of repeats per configuration
-CLEAR=1   # Clean the results dir?
+CLEAR=0   # Clean the results dir?
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 
-# Remove only generated result files (safe filter)
+# # Remove only generated result files (safe filter)
 # if [ "$CLEAR" -eq 1 ] ; then
 #     echo "Cleaning previous results..."
 #     find "$RESULTS_DIR" -depth -type f \( \
@@ -26,11 +27,18 @@ mkdir -p "$RESULTS_DIR"
 #     \) -delete
 # fi
 
-# Remove every file in results/
+# # Remove every file in results/
 if [ "$CLEAR" -eq 1 ] ; then
     echo "Cleaning previous results..."
     rm -rf "$RESULTS_DIR/"
 fi
+
+mkdir -p "$RESULTS_DIR/plots"
+for SCENARIO in "${SCENARIOS[@]}"; do
+    for STEPS in "${STEPS_COUNT[@]}"; do
+        mkdir -p "$RESULTS_DIR/$SCENARIO/$STEPS/plots"
+    done
+done
 
 scenario_profile() {
     case "$1" in
@@ -64,13 +72,6 @@ mode_param_file() {
         exit 1
     fi
 }
-
-mkdir -p "$RESULTS_DIR/plots"
-for SCENARIO in "${SCENARIOS[@]}"; do
-    for STEPS in "${STEPS_COUNT[@]}"; do
-        mkdir -p "$RESULTS_DIR/$SCENARIO/$STEPS/plots"
-    done
-done
 
 export ROS_MASTER_URI=http://localhost:11311
 export ROS_HOSTNAME=localhost
@@ -126,35 +127,39 @@ for SCENARIO in "${SCENARIOS[@]}"; do
         BAG_NAME=$(basename "$BAG" .bag)
         for MODE in "${MODES[@]}"; do
             PARAM_FILE="$(mode_param_file "$MODE" "$SCENARIO")"
-            for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
-                for ((i=1; i<=REPEATS; i++)); do
-                    echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
-                    echo "Params: $PARAM_FILE"
-                    export BAG_FILE="$BAG"
-                    RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
+            for SCOUNT in "${STEPS_COUNTS[@]}"; do
+                SCENARIO_STEPS_RESULTS_DIR="$SCENARIO_RESULTS_DIR/$SCOUNT"
+                for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
+                    for ((i=1; i<=REPEATS; i++)); do
+                        echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
+                        echo "Params: $PARAM_FILE"
+                        export BAG_FILE="$BAG"
+                        RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
 
-                    roslaunch mcmh_localization test_algs.launch \
-                        mode:=$MODE \
-                        result_name:=$RESULT_NAME \
-                        robot_name:=$MODEL \
-                        param_file:="$PARAM_FILE" \
-                        results_dir:="$SCENARIO_RESULTS_DIR" \
-                        init_particles:="$PCOUNT" \
-                        max_particles:="$((PCOUNT * 2))" \
-                        min_particles:="$((PCOUNT / 10))" \
-                        &
+                        roslaunch mcmh_localization test_algs.launch \
+                            mode:=$MODE \
+                            result_name:=$RESULT_NAME \
+                            robot_name:=$MODEL \
+                            param_file:="$PARAM_FILE" \
+                            results_dir:="$SCENARIO_STEPS_RESULTS_DIR" \
+                            init_particles:="$PCOUNT" \
+                            max_particles:="$((PCOUNT * 2))" \
+                            min_particles:="$((PCOUNT / 10))" \
+                            random_steps:="$SCOUNT" \
+                            &
 
-                    LAUNCH_PID=$!
-                    ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
-                    wait "$LAUNCH_PID"
-                    kill "$WATCHDOG_PID" 2>/dev/null
+                        LAUNCH_PID=$!
+                        ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
+                        wait "$LAUNCH_PID"
+                        kill "$WATCHDOG_PID" 2>/dev/null
 
-                    if ps -p "$LAUNCH_PID" > /dev/null; then
-                        echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
-                        kill "$LAUNCH_PID"
-                    fi
+                        if ps -p "$LAUNCH_PID" > /dev/null; then
+                            echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
+                            kill "$LAUNCH_PID"
+                        fi
 
-                    sleep 5
+                        sleep 5
+                    done
                 done
             done
         done
