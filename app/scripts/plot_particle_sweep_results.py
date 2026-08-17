@@ -1635,7 +1635,7 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         prefix = "" if same_dir else "plots/"
 
         html += f"""
-        <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:67%">
+        <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:100%">
             <img src="{prefix}{ate_curve_plot}">
             <img src="{prefix}{rmse_plot}">
             <!-- <img src="{prefix}{std_plot}"> -->
