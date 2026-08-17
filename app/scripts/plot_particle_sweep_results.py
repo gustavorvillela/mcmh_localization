@@ -43,7 +43,9 @@ STYLE_MARKER = {
     700: '.',
     1000: '_',
     1500: '1',
-    2000: 'X'
+    2000: 'x',
+    2500: '+',
+    3000: '3'
     #'other': '>H<^p38xP+2,4X*'
     }
 ALGO_SUPER = ''
@@ -860,7 +862,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     global freq
 
     D_metrics = {
-        "cpu_use": f"Equivalent time of run (in seconds) for one core \n of {processor} at {round(freq)} MHz",
+        "cpu_use": f"Equivalent time of run (in seconds) for one core \n on {processor} at {round(freq)} MHz",
         "memory_use": "Memory use (in MByte)"
     }
 
