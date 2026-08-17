@@ -8,6 +8,8 @@ import statsmodels.api as sm
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 import matplotlib.ticker as ticker
+import psutil as ps
+import subprocess
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
@@ -852,8 +854,11 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     Produce: One plot of the metric over rmse with one color per algorithms and one shape per number of particle saved as scenario_metric_rmse_all.png
     '''
 
+    global processor
+    global freq
+
     D_metrics = {
-        "cpu_use": "CPU equivalent time use (in seconds)",
+        "cpu_use": f"Equivalent time of run (in seconds) for one core \n of {processor} at {round(freq)} MHz",
         "memory_use": "Memory use (in MByte)"
     }
 
@@ -1750,4 +1755,14 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     print("HTML report:", html_path)
 
 if __name__ == "__main__":
+    global processor
+    global freq
+
+    freq = ps.cpu_freq()[0]
+
+    all_info = subprocess.check_output("lscpu", shell=True).decode().strip()
+    for line in all_info.split("\n"):
+        if "Model name" in line:
+            processor = re.sub( ".*Model name.*:", "", line,1).strip()
+    
     main()
