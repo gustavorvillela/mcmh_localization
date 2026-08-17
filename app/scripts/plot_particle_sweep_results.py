@@ -34,6 +34,7 @@ METRIC_KEYS = [
     "memory_use"
 ]
 STYLE_MARKER = {
+    5: '^',
     10: 'h',
     50: '|',
     100: 'o',
@@ -41,7 +42,8 @@ STYLE_MARKER = {
     500: 'v',
     700: '.',
     1000: '_',
-    1500: '1'
+    1500: '1',
+    2000: 'X'
     #'other': '>H<^p38xP+2,4X*'
     }
 ALGO_SUPER = ''
