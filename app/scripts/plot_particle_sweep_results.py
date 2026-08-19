@@ -921,19 +921,6 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     plt.close()
     print(f"{metric}-rmse plot saved at: {plot_path}")
 
-def calculate_yaw_rmse(est, gt):
-    
-    if est.shape[0] != gt.shape[0]:
-        print("Warning: Estimation and ground truth have different lengths for yaw RMSE calculation.")
-        min_len = min(est.shape[0], gt.shape[0])
-        est = est[:min_len]
-        gt = gt[:min_len]
-
-    yaw_diff = np.arctan2(np.sin(est[:, 2] - gt[:, 2]), np.cos(est[:, 2] - gt[:, 2]))
-    rmse_yaw = np.sqrt(np.mean(yaw_diff**2))
-    #print(f"Calculated Yaw RMSE:{rmse_yaw:.2f} degrees")
-    return rmse_yaw
-
 def calculate_path_rmse(est, gt):
     if est.shape[0] != gt.shape[0]:
         print("Warning: Estimation and ground truth have different lengths for path RMSE calculation.")
