@@ -378,8 +378,8 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
                 lower,
                 upper,
                 color=style['color'],
-                alpha=0.18,
-                linewidth=0
+                alpha=0.2,
+                linewidth=1.5
             )
             plt.plot(
                 particles_arr,
