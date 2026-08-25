@@ -795,7 +795,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
 
         plt.title(title)
         plt.xlabel("Position RMSE (m)")
-        plt.ylabel("Memory use (MB)")
+        plt.ylabel("Max memory use (MB)")
 
         plot_path = os.path.join(plots_dir, f"{scenario}_mem_rmse_{particles}p.png")
         plotted = False     
@@ -805,7 +805,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
             list_rmse = []
             for run in data_metrics[scenario][algo][particles] :
                 mem = data_metrics[scenario][algo][particles][run].get("memory_use")
-                list_mem.append(np.mean(mem) * 10e-6)
+                list_mem.append(np.max(mem) * 10e-6)
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1]) 
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
@@ -864,7 +864,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
 
     D_metrics = {
         "cpu_use": f"Equivalent time of run (in seconds) for one core \n on {processor} at {round(freq)} MHz",
-        "memory_use": "Memory use (in MByte)"
+        "memory_use": "Max memory use (in MByte)"
     }
 
     styles = styles or {}
@@ -889,7 +889,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
             for run in data_metrics[scenario][algo][particles] :
                 val = data_metrics[scenario][algo][particles][run].get(metric)
                 if metric == 'memory_use' :
-                    list_data.append(np.mean(val) * 1e-6)
+                    list_data.append(np.max(val) * 1e-6)
                 elif metric == 'cpu_use' :
                     list_data.append(np.mean(val) * data_metrics[scenario][algo][particles][run].get('time') / 100)
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
@@ -1388,8 +1388,6 @@ def process_results_dir(results_dir, results_root):
             "Failure Rate",
             styles=styles
         )
-
-        #plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
         
         plot_monitoring_vs_rmse_all_in_one("memory_use", scenario, data_metrics, data, plots_dir, styles)
         plot_monitoring_vs_rmse_all_in_one("cpu_use", scenario, data_metrics, data, plots_dir, styles)
@@ -1455,7 +1453,7 @@ def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=
     nb_steps = extract_random_steps(results_dir)
 
     for particles in d_particles:
-        memo = [np.mean(data_metrics[scenario][algo][particles][run].get('memory_use')) for run in data_metrics[scenario][algo][particles]]
+        memo = [np.max(data_metrics[scenario][algo][particles][run].get('memory_use')) for run in data_metrics[scenario][algo][particles]]
         cpu = [np.mean(data_metrics[scenario][algo][particles][run].get('cpu_use')) for run in data_metrics[scenario][algo][particles]]
         rmse = data[scenario][algo][particles]["pos"].copy()
         data_super[config][nb_steps][particles] = (memo, cpu, rmse)
