@@ -401,6 +401,7 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
                 linewidth=2
             )
 
+    plt.semilogy()
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
     plt.tight_layout()
@@ -914,6 +915,7 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     for entry in list_algo :
         handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
 
+    plt.semilogy()
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
