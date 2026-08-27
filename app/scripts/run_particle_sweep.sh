@@ -5,7 +5,7 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
-MODES=("MCL" "MHMCL" "3MCL")   # Can adjust as desired
+MODES=("MCL" "AMCL" "3MCL" "MHMCL")   # Can adjust as desired
 PARTICLE_COUNTS=(100 300 500 750 1000)  # particle counts to test
 SCENARIOS=("M")  # C=Conservative, M=Medium, A=Aggressive
 RESULTS_DIR="$(rospack find mcmh_localization)/results"
@@ -67,9 +67,7 @@ mode_param_file() {
 
 mkdir -p "$RESULTS_DIR/plots"
 for SCENARIO in "${SCENARIOS[@]}"; do
-    for STEPS in "${STEPS_COUNT[@]}"; do
-        mkdir -p "$RESULTS_DIR/$SCENARIO/$STEPS/plots"
-    done
+    mkdir -p "$RESULTS_DIR/$SCENARIO/plots"
 done
 
 export ROS_MASTER_URI=http://localhost:11311
