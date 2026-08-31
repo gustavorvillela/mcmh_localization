@@ -847,18 +847,15 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     Produce: One plot of the metric over rmse with one color per algorithms and one shape per number of particle saved as scenario_metric_rmse_all.png
     '''
 
-    D_metrics = {
-        "cpu_use": "CPU use (% of one cpu)",
-        "memory_use": "Memory use (in MByte)"
-    }
+    is_mean = 'mean' in metric
+    metric = metric.replace("mean_", "")
 
     styles = styles or {}
     plt.figure(figsize=(8, 6))
 
     title = f"RMSE vs {metric} use - {scenario}"
     plt.title(title)
-    plt.ylabel("Position RMSE (m)")
-    plt.xlabel(f"{D_metrics[metric]}")
+    ylabel = "Position RMSE (m)"
 
     plot_path = os.path.join(plots_dir, f"{scenario}_{metric}_rmse_all.png")
     plotted = False     
@@ -872,12 +869,23 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
             list_data = []
             list_rmse = []
             for run in data_metrics[scenario][algo][particles] :
-                val = data_metrics[scenario][algo][particles][run].get(metric)
-                if metric == 'memory_use' :
+                val = data_metrics[scenario][algo][particles][run].get(metric.replace("mean_", ""))
+                if 'memory' in metric :
                     list_data.append(np.mean(val) * 1e-6)
-                else :
+                    xlabel = "Memory use (in MByte)"
+                elif 'cpu' in metric :
                     list_data.append(np.mean(val))
+                    xlabel = "CPU use (% of one cpu)"
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
+
+            if is_mean:
+                list_rmse = np.mean(list_rmse)
+                list_data = np.mean(list_data)
+                xlabel = "Mean " + xlabel
+                ylabel = "Mean position RMSE (m)"
+
+            plt.ylabel(ylabel)
+            plt.xlabel(xlabel)
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
@@ -1386,8 +1394,8 @@ def process_results_dir(results_dir, results_root):
 
         #plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
         
-        plot_monitoring_vs_rmse_all_in_one("memory_use", scenario, data_metrics, data, plots_dir, styles)
-        plot_monitoring_vs_rmse_all_in_one("cpu_use", scenario, data_metrics, data, plots_dir, styles)
+        plot_monitoring_vs_rmse_all_in_one("mean_memory_use", scenario, data_metrics, data, plots_dir, styles)
+        plot_monitoring_vs_rmse_all_in_one("mean_cpu_use", scenario, data_metrics, data, plots_dir, styles)
 
         # --- Find best (lowest RMSE position) ---
         summary_path = os.path.join(results_dir, "summary_results.txt")
