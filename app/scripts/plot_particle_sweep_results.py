@@ -1493,7 +1493,7 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
     plt.figure(figsize=(8, 6))
 
     plt.title(f"{ALGO_SUPER} - {metric.replace('_', ' ').upper()} vs RMSE for diffrents number of random_steps and number of particle")
-    plt.xlabel("Position RMSE (m)")
+    plt.ylabel("Position RMSE (m)")
 
     list_particles = []
     list_config = data_super.keys()
@@ -1507,26 +1507,26 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
                 x = data_super[config][nb_steps][particles][-1]
                 if metric == "memory_use" :
                     y = [val * 1e-6 for val in data_super[config][nb_steps][particles][0]]
-                    plt.ylabel("Memory use (MBytes)")
+                    plt.xlabel("Memory use (MBytes)")
                 elif metric == "cpu_use" :
                     y = [val for val in data_super[config][nb_steps][particles][1]]
-                    plt.ylabel("CPU use (Percentage for one cpu)")
+                    plt.xlabel("CPU use (Percentage for one cpu)")
                 elif metric == "mean_cpu_use" :
                     y = np.mean([val for val in data_super[config][nb_steps][particles][1]])
                     x = np.mean(x)
-                    plt.ylabel("Mean CPU use (Percentage for one cpu)")
-                    plt.xlabel("Mean position RMSE (m)")
+                    plt.xlabel("Mean CPU use (Percentage for one cpu)")
+                    plt.ylabel("Mean position RMSE (m)")
                 elif metric == "mean_memory_use" :
                     y = np.mean([val * 1e-6 for val in data_super[config][nb_steps][particles][0]])
                     x = np.mean(x)
-                    plt.ylabel("Mean memory use (MBytes)")
-                    plt.xlabel("Mean position RMSE (m)")
+                    plt.xlabel("Mean memory use (MBytes)")
+                    plt.ylabel("Mean position RMSE (m)")
                 
                 plt.scatter(
-                    x=x,
-                    y=y,
-                    color=style['color'][nb_steps],
-                    marker=style['marker'][particles]
+                    x=y,
+                    y=x,
+                    color=style['color'][particles],
+                    marker=style['marker'][nb_steps]
                 )
 
         handles = []
@@ -1537,7 +1537,7 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
             handles.append(mpatches.Patch(color=style['color'][entry], label=str(entry)+' random_steps'))
 
         plot_path = os.path.join(plot_dir, f"{config}_{ALGO_SUPER}_{metric}-rmse.png")
-        plt.xlim(left=0)
+        #plt.xlim(left=0)
         plt.grid(True, linestyle='--', alpha=0.4)
         plt.legend(handles=handles)
         plt.tight_layout()
