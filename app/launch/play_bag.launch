@@ -6,7 +6,7 @@
   <arg name="mode" default="MCL"/>
   <arg name="result_name" default="$(arg mode)_$(arg bag_file)"/>
   <arg name="rviz" default="true"/>
-  <arg name="params_file" default="amhmcl"/>
+  <arg name="params_file" default="amcl_medium"/>
   <arg name="pub_gt_path" default="true"/>
 
   <!-- ========================================================= -->
