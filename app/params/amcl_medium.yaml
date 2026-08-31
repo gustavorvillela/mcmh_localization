@@ -3,10 +3,10 @@
 
 initialized: False
 use_sim_time: True
-init_particles: 500
-min_particles: 125
-max_particles: 2000
-headless: True
+init_particles: 2000
+#min_particles: 125
+#max_particles: 2000
+headless: False
 
 meta_lambda: 0.72
 random_steps: 150
@@ -21,16 +21,16 @@ alpha6: 0.0215
 alpha7: 0.0412
 alpha8: 0.0412
 
-kld_epsilon: 0.5
+kld_epsilon: 0.03
 kld_z: 2.326
-kld_bin_size_xy: 0.2
-kld_bin_size_theta: 0.17
+kld_bin_size_xy: 0.05
+kld_bin_size_theta: 0.087
 
-alpha_slow: 0.01
-alpha_fast: 0.4
+alpha_slow: 0.005
+alpha_fast: 0.03
 
 sigma_hit: 0.05
 z_hit: 0.9
 z_rand: 0.1
 max_range: 8.0
-step: 2
+step: 5
