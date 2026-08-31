@@ -32,29 +32,15 @@ METRIC_KEYS = [
     "memory_use"
 ]
 STYLE_MARKER = {
-        50: '|',
-        100: 'o',
-        150: 'h',
-        200: 'x',
-        250: '<',
-        300: 's',
-        350: '>',
-        400: '^',
-        450: '_',
-        500: 'v',
-        550: '2',
-        600: 'p',
-        650: 'H',
-        700: '.',
-        750: '+',
-        800: '1',
-        850: '8',
-        900: '3',
-        950: 'P',
-        1000: '*'
-        #'other': ',4X'
+    10: 'o',
+    50: '|',
+    500: 'v',
+    1000: '*',
+    2000: 'H',
+    2500: 'x',
+    3000: 's',
     }
-ALGO_SUPER = '3MCL'
+ALGO_SUPER = ''
 STYLE_SUPER = {
     'color':{
         '10':"#E69F00",
@@ -638,7 +624,6 @@ def plot_ess(scenario, best_info, data_metrics, plots_dir, styles=None):
 
     for algo, (particles, run) in best_info.items():
         ess = data_metrics[scenario][algo][particles][run].get("effective_sample_size", [])
-        ess = [val/particles for val in ess]
         if not ess:
             print(f"Warning: No ESS data for {scenario} | {algo} | {particles}p | run {run}")
             continue

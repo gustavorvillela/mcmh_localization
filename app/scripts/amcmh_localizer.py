@@ -448,7 +448,7 @@ class AMCMHLocalizer:
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-        self.Neff_pub.publish(Float64(Neff))
+        self.Neff_pub.publish(Float64(Neff/self.num_particles))
 
         if Neff < self.num_particles / 2.0 or self.last_odom is None:
             if self.use_adaptive:
@@ -1000,12 +1000,12 @@ class AMCMHLocalizer:
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-        self.Neff_pub.publish(Float64(Neff))
+        self.Neff_pub.publish(Float64(Neff/self.num_particles))
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
         if self.use_adaptive:
             self.update_acml_weights(weights)
-            if Neff < self.num_particles / 1.0:
+            if Neff < self.num_particles / 2.0:
                 self.resample_amcl_kld()
                 self.num_particles = len(self.particles)
         else:
