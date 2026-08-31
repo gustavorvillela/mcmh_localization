@@ -953,7 +953,6 @@ class AMCMHLocalizer:
         pose.pose.pose.orientation.z = np.sin(mean_theta / 2.0)
         pose.pose.pose.orientation.w = np.cos(mean_theta / 2.0)
 
-# Why?
         # Preenche a matriz de covariância (6x6 flatten)
         # We use only the dimensions x, y, theta -> [0,0], [1,1], [5,5]
         cov_flat = np.zeros(36)
