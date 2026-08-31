@@ -8,6 +8,8 @@ import statsmodels.api as sm
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 import matplotlib.ticker as ticker
+import psutil as ps
+import subprocess
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
@@ -215,6 +217,7 @@ def extract_neff(filepath):
 # I/ filepath: String a path to file
 # O/ L_cpu: List of cpu use over time
 # O/ L_mem: List of memory use over time
+# O/ delta_t_run: Float of the time of the run in seconds
 # Necessity: a valid file with three column (time cpu, memory) 
 #           separate by comma
 # Produce: two list of all valid data (no blanc value or 
@@ -225,12 +228,15 @@ def extract_monitor(filepath) :
     I/ filepath: String a path to file \\
     O/ L_cpu: List of cpu use over time \\
     O/ L_mem: List of memory use over time \\
+    O/ delta_t_run: Float of the time of the run in seconds \\
     Necessity: a valid file with three column (time cpu, memory) separate by comma \\
     Produce: two list of all valid data (no blanc value or first 0 from cpu monitoring if present)
     '''
 
     L_cpu = []
     L_mem = []
+    L_tmp = []
+    delta_t_run = 0
     try:
         with open(filepath, 'r') as f:
             for line in f:
@@ -238,13 +244,15 @@ def extract_monitor(filepath) :
                     continue
                 t, cpu, mem = line.split(',')
                 if not (cpu == " " or mem == " " or t == 'time') :
+                    L_tmp.append(int(t))
                     L_cpu.append(float(cpu.strip()))
                     L_mem.append(int(float(mem.strip())))
     except Exception as e:
         print(f"Error opening {filepath} in extract_monitor: {e}")
+    delta_t_run = (L_tmp[-1] - L_tmp[0]) * 1e-9
     if L_cpu[0] == 0 :
-        return L_cpu[1::], L_mem
-    return L_cpu, L_mem
+        return delta_t_run, L_cpu[1::], L_mem
+    return delta_t_run, L_cpu, L_mem
 
 # Action: Classify one position/yaw error sample according to the recall thresholds.
 # I/ err_pos: Float position error in meters
@@ -368,8 +376,8 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
                 lower,
                 upper,
                 color=style['color'],
-                alpha=0.18,
-                linewidth=0
+                alpha=0.2,
+                linewidth=1.5
             )
             plt.plot(
                 particles_arr,
@@ -391,6 +399,7 @@ def plot_rmse(data, scenario, plot_path, test="pos", stat="mean",styles=None):
                 linewidth=2
             )
 
+    plt.semilogy()
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend()
     plt.tight_layout()
@@ -783,7 +792,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
 
         plt.title(title)
         plt.xlabel("Position RMSE (m)")
-        plt.ylabel("Memory use (MB)")
+        plt.ylabel("Max memory use (MB)")
 
         plot_path = os.path.join(plots_dir, f"{scenario}_mem_rmse_{particles}p.png")
         plotted = False     
@@ -793,7 +802,7 @@ def plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles) :
             list_rmse = []
             for run in data_metrics[scenario][algo][particles] :
                 mem = data_metrics[scenario][algo][particles][run].get("memory_use")
-                list_mem.append(np.mean(mem) * 10e-6)
+                list_mem.append(np.max(mem) * 10e-6)
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1]) 
 
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
@@ -908,25 +917,13 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
     for entry in list_algo :
         handles.append(mpatches.Patch(color=styles[entry]['color'], label=entry))
 
+    plt.semilogy()
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(handles=handles)
     plt.tight_layout()
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"{metric}-rmse plot saved at: {plot_path}")
-
-def calculate_yaw_rmse(est, gt):
-    
-    if est.shape[0] != gt.shape[0]:
-        print("Warning: Estimation and ground truth have different lengths for yaw RMSE calculation.")
-        min_len = min(est.shape[0], gt.shape[0])
-        est = est[:min_len]
-        gt = gt[:min_len]
-
-    yaw_diff = np.arctan2(np.sin(est[:, 2] - gt[:, 2]), np.cos(est[:, 2] - gt[:, 2]))
-    rmse_yaw = np.sqrt(np.mean(yaw_diff**2))
-    #print(f"Calculated Yaw RMSE:{rmse_yaw:.2f} degrees")
-    return rmse_yaw
 
 def calculate_path_rmse(est, gt):
     if est.shape[0] != gt.shape[0]:
@@ -1237,7 +1234,8 @@ def process_results_dir(results_dir, results_root):
         "effective_sample_size": [],
         "success": None,
         "cpu_use": [],
-        "memory_use": []
+        "memory_use": [],
+        "time":None
     }))))
 
     for filename in os.listdir(results_dir):
@@ -1293,9 +1291,10 @@ def process_results_dir(results_dir, results_root):
 
             if algo and particles:
                 print(f"{filename}")
-                cpu, mem = extract_monitor(file_path)
+                t, cpu, mem = extract_monitor(file_path)
                 data_metrics[scenario][algo][particles][run]["cpu_use"] = cpu
                 data_metrics[scenario][algo][particles][run]["memory_use"] = mem
+                data_metrics[scenario][algo][particles][run]["time"] = t
                 print(f"Loaded cpu and memory usage from: {filename} | {report_label}/{scenario} | {algo} | {particles}p | run {run}")
 
         else:
@@ -1391,8 +1390,6 @@ def process_results_dir(results_dir, results_root):
             "Failure Rate",
             styles=styles
         )
-
-        #plot_mem_vs_rmse(scenario, data_metrics, data, plots_dir, styles)
         
         plot_monitoring_vs_rmse_all_in_one("mean_memory_use", scenario, data_metrics, data, plots_dir, styles)
         plot_monitoring_vs_rmse_all_in_one("mean_cpu_use", scenario, data_metrics, data, plots_dir, styles)
@@ -1458,7 +1455,7 @@ def get_data_super(results_dir, scenario, d_particles, data, data_metrics, algo=
     nb_steps = extract_random_steps(results_dir)
 
     for particles in d_particles:
-        memo = [np.mean(data_metrics[scenario][algo][particles][run].get('memory_use')) for run in data_metrics[scenario][algo][particles]]
+        memo = [np.max(data_metrics[scenario][algo][particles][run].get('memory_use')) for run in data_metrics[scenario][algo][particles]]
         cpu = [np.mean(data_metrics[scenario][algo][particles][run].get('cpu_use')) for run in data_metrics[scenario][algo][particles]]
         rmse = data[scenario][algo][particles]["pos"].copy()
         data_super[config][nb_steps][particles] = (memo, cpu, rmse)
@@ -1629,13 +1626,15 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
         prefix = "" if same_dir else "plots/"
 
         html += f"""
-        <div style="display:grid; grid-template-columns:repeat(3, 1fr); width:100%">
+        <div style="display:grid; grid-template-columns:repeat(2, 1fr); width:100%">
             <img src="{prefix}{ate_curve_plot}">
             <img src="{prefix}{rmse_plot}">
             <!-- <img src="{prefix}{std_plot}"> -->
             <img src="{prefix}{best_path_yaw_plot}">
             <img src="{prefix}{yaw_plot}">
             <!-- <img src="{prefix}{std_yaw_plot}"> -->
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); width:100%">
             <img src="{prefix}{success_plot}">
             <img src="{prefix}{spl_plot}">
             <img src="{prefix}{failure_plot}">
@@ -1749,4 +1748,14 @@ def generate_html_report(all_data, results_dir, same_dir=False, report_label=Non
     print("HTML report:", html_path)
 
 if __name__ == "__main__":
+    global processor
+    global freq
+
+    freq = ps.cpu_freq()[0]
+
+    all_info = subprocess.check_output("lscpu", shell=True).decode().strip()
+    for line in all_info.split("\n"):
+        if "Model name" in line:
+            processor = re.sub( ".*Model name.*:", "", line,1).strip()
+    
     main()
