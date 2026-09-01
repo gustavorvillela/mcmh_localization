@@ -45,16 +45,17 @@ STYLE_MARKER = {
 ALGO_SUPER = '3MCL'
 STYLE_SUPER = {
     'color':{
-        '10':"#E69F00",
-        '50':"#56B4E9",
-        '110':"#009E73",
-        '120':"#F0E442",
-        '130':"#0072B2",
-        '140':"#D55E00",
-        '150':"#CC79A7",
-        '200':"#000000",
+        10:"#E69F00",
+        50:"#56B4E9",
+        110:"#009E73",
+        120:"#F0E442",
+        130:"#0072B2",
+        140:"#D55E00",
+        150:"#CC79A7",
+        200:"#000000",
     },
     'marker':{
+
         50: 'o',
         60: 'x',
         70: 's',
@@ -1522,16 +1523,17 @@ def plot_super(metric, plot_dir, style=STYLE_SUPER):
                 plt.scatter(
                     x=y,
                     y=x,
-                    color=style['color'][particles],
-                    marker=style['marker'][nb_steps]
+                    color=style['color'][int(particles)],
+                    marker=style['marker'][int(nb_steps)]
                 )
 
         handles = []
         list_particles.sort()
-        for entry in list_particles :
-            handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][entry], label=str(entry)+' particles', linewidth=0))
+        list_nb_step
         for entry in list_nb_step :
-            handles.append(mpatches.Patch(color=style['color'][entry], label=str(entry)+' random_steps'))
+            handles.append(mlines.Line2D([], [], color='black', marker=style['marker'][int(entry)], label=str(entry)+' random_steps', linewidth=0))
+        for entry in list_particles :
+            handles.append(mpatches.Patch(color=style['color'][int(entry)], label=str(entry)+' particles'))
 
         plot_path = os.path.join(plot_dir, f"{config}_{ALGO_SUPER}_{metric}-rmse.png")
         #plt.xlim(left=0)
