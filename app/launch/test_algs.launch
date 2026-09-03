@@ -25,6 +25,7 @@
   <param if="$(eval arg('min_particles') != '')" name="min_particles" value="$(arg min_particles)" type="int"/>
   <param if="$(eval arg('max_particles') != '')" name="max_particles" value="$(arg max_particles)" type="int"/>
   <param if="$(eval arg('random_steps') != '')" name="random_steps" value="$(arg random_steps)" type="int"/>
+  <param if="$(eval arg('meta_lambda') != '')" name="meta_lambda" value="$(arg meta_lambda)"/>
 
   <!-- Extension for result name -->
   <arg name="name_ext" default=""/>
