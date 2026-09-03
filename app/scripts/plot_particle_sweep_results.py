@@ -898,23 +898,46 @@ def plot_monitoring_vs_rmse_all_in_one(metric, scenario, data_metrics, data, plo
                     xlabel = "CPU use (% of one cpu)"
                 list_rmse.append(data[scenario][algo][particles]["pos"][int(run)-1])
 
-            if is_mean:
-                list_rmse = np.mean(list_rmse)
-                list_data = np.mean(list_data)
-                xlabel = "Mean " + xlabel
-                ylabel = "Mean position RMSE (m)"
-
-            plt.ylabel(ylabel)
-            plt.xlabel(xlabel)
-
             style = styles.get(algo, {'color': '#666666', 'linestyle': '-', 'marker': 'o', 'label': algo})
 
-            plt.scatter(
-                y=list_rmse,
-                x=list_data,
-                color=style['color'],
-                marker=STYLE_MARKER[particles]
-            )
+            if is_mean:
+                x_pos = np.mean(list_data)
+                mean_xlabel = "Mean " + xlabel
+
+                plt.ylabel(ylabel)
+                plt.xlabel(mean_xlabel)
+
+                box_width = max(abs(x_pos) * 0.05, 1e-6)
+                box = plt.boxplot(
+                    list_rmse,
+                    positions=[x_pos],
+                    widths=box_width,
+                    patch_artist=True,
+                    manage_ticks=False,
+                )
+                for element in ('boxes', 'whiskers', 'caps', 'medians'):
+                    plt.setp(box[element], color=style['color'])
+                for patch in box['boxes']:
+                    patch.set_facecolor(style['color'])
+                    patch.set_alpha(0.4)
+
+                plt.scatter(
+                    y=[np.median(list_rmse)],
+                    x=[x_pos],
+                    color=style['color'],
+                    marker=STYLE_MARKER[particles],
+                    zorder=3,
+                )
+            else:
+                plt.ylabel(ylabel)
+                plt.xlabel(xlabel)
+
+                plt.scatter(
+                    y=list_rmse,
+                    x=list_data,
+                    color=style['color'],
+                    marker=STYLE_MARKER[particles]
+                )
             plotted = True
 
     if not plotted:
