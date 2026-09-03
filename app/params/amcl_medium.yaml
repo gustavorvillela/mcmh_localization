@@ -8,7 +8,7 @@ init_particles: 2000
 #max_particles: 2000
 headless: False
 
-meta_lambda: 0.72
+meta_lambda: 0.48
 random_steps: 150
 
 alpha1: 0.16
