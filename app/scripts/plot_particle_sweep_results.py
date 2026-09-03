@@ -10,6 +10,7 @@ import matplotlib.lines as mlines
 import matplotlib.ticker as ticker
 import psutil as ps
 import subprocess
+import seaborn as sns
 
 list_algos = ['MCL', 'AMCL', 'MHMCL', 'MHAMCL', 'AMHMCL', 'AMHAMCL', '3MCL']
 
@@ -1222,7 +1223,47 @@ def discover_result_dirs(results_root):
 
     return sorted(set(result_dirs))
 
-def process_results_dir_internal(results_dir, results_root):
+def plot_heatmap_internal(data_internal, plot_dir):
+
+    list_particles = [10, 50]
+
+    list_config = data_internal.keys()
+    for config in list_config:
+        for particle in list_particles:
+            fig, ax = plt.subplots()
+
+            fig.figure(figsize=(8, 6))    
+            fig.title(f"Heatmap of RMSE for random_walk_steps_count x gamma for {particle}p")
+
+            list_nb_step = list(data_internal[config].keys()).copy()
+            list_decay_factor = list(data_internal[config][list_nb_step[0]].keys()).copy()
+            list_nb_step.sort()
+            list_decay_factor.sort()
+
+            data = np.empty(len(list_nb_step), len(list_decay_factor))
+
+            # data_internal[config][nb_steps_walk][decay_factor][particles] = (memo, cpu, rmse)
+
+            for i in len(list_nb_step):
+                for j in len(list_decay_factor):
+                    data[i, j] = np.mean(data_internal[config][list_nb_step[i]][list_decay_factor[j]][particle][plot_rmse])
+
+            ax = sns.heatmap(
+                data=data,
+                annot=True,
+
+            )
+            ax.set(xlabel="", ylabel="")
+
+            plot_path = os.path.join(plot_dir, f"internal_heatmap_{particle}p.png")
+            fig.tight_layout()
+            fig.savefig(plot_path, dpi=200)
+            fig.close()
+
+        # data_internal[config][nb_steps_walk][decay_factor][particles] = (memo, cpu, rmse)
+
+
+def process_results_dir_internal(results_dir):
     plots_dir = os.path.join(results_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
 
@@ -1285,7 +1326,7 @@ def process_results_dir_internal(results_dir, results_root):
     # plot_internal_data("mean_memory_use", data_internal, plots_dir)
     # plot_internal_data("mean_cpu_use", data_internal, plots_dir)
     plot_internal_rmse_nb_part(data_internal, plots_dir)
-    # plot_internal_rmse_nb_part(data_internal, results_root)
+    plot_heatmap_internal(data_internal, plots_dir)
 
 def process_results_dir(results_dir, results_root):
     plots_dir = os.path.join(results_dir, 'plots')
@@ -1617,7 +1658,7 @@ def plot_internal_data(metric, data_internal, plot_dir, style=STYLE_INTERNAL):
             for entry in list_particles :
                 handles.append(mpatches.Patch(color=style['particles'][int(entry)], label=str(entry)+"p"))
 
-            plot_path = os.path.join(plot_dir, f"{config}_internal_{metric}-rmse_for_gamma{decay_factor}.png")
+            plot_path = os.path.join(plot_dir, f"internal_{metric}-rmse_for_gamma{decay_factor}.png")
             plt.grid(True, linestyle='--', alpha=0.4)
             plt.legend(handles=handles)
             plt.tight_layout()
@@ -1632,8 +1673,6 @@ def plot_internal_rmse_nb_part(data_internal, plot_dir, style=STYLE_INTERNAL):
     for config in list_config:
         list_nb_step = list(data_internal[config].keys()).copy()
         list_decay_factor = list(data_internal[config][list_nb_step[0]].keys()).copy()
-        # print(f"[DEBUG] list_nb_step={list_nb_step}")
-        # print(f"[DEBUG] list_decay_factor={list_decay_factor}")
 
         # data_internal[config][nb_steps_walk][decay_factor][particles] = (memo, cpu, rmse)
 
@@ -1655,7 +1694,7 @@ def plot_internal_rmse_nb_part(data_internal, plot_dir, style=STYLE_INTERNAL):
                     marker=style['rw'][int(nb_steps)],
                 )
 
-            plot_path = os.path.join(plot_dir, f"{config}_internal_rmse-part_gamma{decay}.png")
+            plot_path = os.path.join(plot_dir, f"internal_rmse-part_gamma{decay}.png")
             plt.grid(True, linestyle='--', alpha=0.4)
             plt.legend()
             plt.tight_layout()
