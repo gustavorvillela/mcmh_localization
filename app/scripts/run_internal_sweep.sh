@@ -5,15 +5,16 @@
 #   ./run_particle_sweep.sh
 #   ./run_particle_sweep.sh L_rest.bag    # to run only that bag
 
-MODES=("MCL" "MHMCL" "3MCL")   # Can adjust as desired
-PARTICLE_COUNTS=(50 100 300 500)  # particle counts to test
-STEPS_COUNTS=(10)  # particle counts to test
+MODES=("3MCL")   # Can adjust as desired
+PARTICLE_COUNTS=(10 50 500 1000 2000 2500 3000)  # particle counts to test
+STEPS_COUNTS=(10 50 80 100)  # particle counts to test
+DECAY_FACTOR=(0.1 0.5 0.8 1) # Decay factor for 3MCL
 SCENARIOS=(M)  # C=Conservative, M=Medium, A=Aggressive
-RESULTS_DIR="$(rospack find mcmh_localization)/results"
+RESULTS_DIR="$(rospack find mcmh_localization)/results/internal"
 DEFAULT_BAG_DIR="$(rospack find mcmh_localization)/bags"
 PARAMS_DIR="$(rospack find mcmh_localization)/params"
-REPEATS=10   # number of repeats per configuration
-CLEAR=0   # Clean the results dir?
+REPEATS=1   # number of repeats per configuration
+CLEAR=1   # Clean the results dir?
 MODEL="turtlebot3_${TURTLEBOT3_MODEL:-waffle}"  # TurtleBot3 model (waffle or burger)
 mkdir -p "$RESULTS_DIR"
 
@@ -35,9 +36,7 @@ fi
 
 mkdir -p "$RESULTS_DIR/plots"
 for SCENARIO in "${SCENARIOS[@]}"; do
-    for STEPS in "${STEPS_COUNT[@]}"; do
-        mkdir -p "$RESULTS_DIR/$SCENARIO/$STEPS/plots"
-    done
+    mkdir -p "$RESULTS_DIR/$SCENARIO/plots"
 done
 
 scenario_profile() {
@@ -128,37 +127,39 @@ for SCENARIO in "${SCENARIOS[@]}"; do
         for MODE in "${MODES[@]}"; do
             PARAM_FILE="$(mode_param_file "$MODE" "$SCENARIO")"
             for SCOUNT in "${STEPS_COUNTS[@]}"; do
-                SCENARIO_STEPS_RESULTS_DIR="$SCENARIO_RESULTS_DIR/$SCOUNT"
                 for PCOUNT in "${PARTICLE_COUNTS[@]}"; do
-                    for ((i=1; i<=REPEATS; i++)); do
-                        echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
-                        echo "Params: $PARAM_FILE"
-                        export BAG_FILE="$BAG"
-                        RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}"
+                    for DECAY in "${DECAY_FACTOR[@]}"; do
+                        for ((i=1; i<=REPEATS; i++)); do
+                            echo "=== Running scenario $SCENARIO | $MODE with $BAG ($PCOUNT particles, run $i/$REPEATS) ==="
+                            echo "Params: $PARAM_FILE"
+                            export BAG_FILE="$BAG"
+                            RESULT_NAME="${BAG_NAME}_${MODE}_${PCOUNT}p_run${i}_${SCOUNT}rw_${DECAY}df"
 
-                        roslaunch mcmh_localization test_algs.launch \
-                            mode:=$MODE \
-                            result_name:=$RESULT_NAME \
-                            robot_name:=$MODEL \
-                            param_file:="$PARAM_FILE" \
-                            results_dir:="$SCENARIO_STEPS_RESULTS_DIR" \
-                            init_particles:="$PCOUNT" \
-                            max_particles:="$((PCOUNT * 2))" \
-                            min_particles:="$((PCOUNT / 10))" \
-                            random_steps:="$SCOUNT" \
-                            &
+                            roslaunch mcmh_localization test_algs.launch \
+                                mode:=$MODE \
+                                result_name:=$RESULT_NAME \
+                                robot_name:=$MODEL \
+                                param_file:="$PARAM_FILE" \
+                                results_dir:="$SCENARIO_RESULTS_DIR" \
+                                init_particles:="$PCOUNT" \
+                                max_particles:="$((PCOUNT * 2))" \
+                                min_particles:="$((PCOUNT / 10))" \
+                                random_steps:="$SCOUNT" \
+                                meta_lambda:="$DECAY" \
+                                &
 
-                        LAUNCH_PID=$!
-                        ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
-                        wait "$LAUNCH_PID"
-                        kill "$WATCHDOG_PID" 2>/dev/null
+                            LAUNCH_PID=$!
+                            ( sleep 100 && kill "$LAUNCH_PID" 2>/dev/null ) & WATCHDOG_PID=$!
+                            wait "$LAUNCH_PID"
+                            kill "$WATCHDOG_PID" 2>/dev/null
 
-                        if ps -p "$LAUNCH_PID" > /dev/null; then
-                            echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
-                            kill "$LAUNCH_PID"
-                        fi
+                            if ps -p "$LAUNCH_PID" > /dev/null; then
+                                echo "Process hung, killing roslaunch (PID $LAUNCH_PID)"
+                                kill "$LAUNCH_PID"
+                            fi
 
-                        sleep 5
+                            sleep 5
+                        done
                     done
                 done
             done

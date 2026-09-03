@@ -9,6 +9,7 @@
   <arg name="min_particles" default=""/>
   <arg name="max_particles" default=""/>
   <arg name="random_steps" default=""/>
+  <arg name="meta_lambda" default=""/>
 
   <arg name="poll_period" default="0.1"/>
   <arg name="save_to_csv" default="true"/>
