@@ -23,7 +23,8 @@ RUN pip3 install --no-cache-dir --upgrade \
     scipy \
     numba \
     matplotlib \
-    statsmodels
+    statsmodels \
+    seaborn
 
 # Install default ROS packages for TurtleBot3
 RUN apt-get update && apt-get install -y \

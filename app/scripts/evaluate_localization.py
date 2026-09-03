@@ -120,7 +120,7 @@ class Evaluator:
             f.write("Neff\n")
             for data in self.Neff_history:
                 f.write(
-                    f"{data:.0f}\n"
+                    f"{data:.4f}\n"
                 )
         
         rospy.loginfo(f"Data saved to: {self.poses_file}")

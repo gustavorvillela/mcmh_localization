@@ -143,7 +143,6 @@ class AMCMHLocalizer:
         if self.meta : # if 3MCL
             # Exponential recency weighting for Meta-MH
             # Equivalent decay factor
-            self.meta_decay = np.exp(-self.meta_lambda)
 
             # Current recency multiplier
             self.meta_time_weight = 1.0
@@ -448,7 +447,7 @@ class AMCMHLocalizer:
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-        self.Neff_pub.publish(Float64(Neff))
+        self.Neff_pub.publish(Float64(Neff/self.num_particles))
 
         if Neff < self.num_particles / 2.0 or self.last_odom is None:
             if self.use_adaptive:
@@ -552,10 +551,10 @@ class AMCMHLocalizer:
         self.particles_prev = mh_particles.copy()  # Update previous particles to the MH result for the next iteration, so that the next odometry update applies the motion model to the MH result that incorporates the path history up to this point.
         self.weights_pre = mh_weights.copy()  # Update previous weights to the MH result for the next iteration, so that the MH step in the next odometry update uses the updated meta distribution that incorporates the path history up to this point.
         # Older samples get exponentially less importance
-        self.meta_xy *=  self.meta_decay
-        self.meta_cos *=  self.meta_decay
-        self.meta_sin *=  self.meta_decay
-        self.meta_weights *=  self.meta_decay
+        self.meta_xy *=  self.meta_lambda
+        self.meta_cos *=  self.meta_lambda
+        self.meta_sin *=  self.meta_lambda
+        self.meta_weights *=  self.meta_lambda
 
         self.meta_xy +=  mh_xy * mh_weights[:, np.newaxis]
         self.meta_cos +=  mh_cos * mh_weights
@@ -565,12 +564,12 @@ class AMCMHLocalizer:
         self.N_count = 0
         self.acc_rate.publish(Float64(acc_rate))
 
-        #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update, before MH random walk.")
+        #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_lambda:.4f} after odometry update, before MH random walk.")
         self.do_mh_random_walk = True  # Flag to indicate that we should perform MH random walk in the lidar callback after processing the new scan, so that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
         self.mh_random_walk(mh_particles, mh_weights)
         #print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
         
-        #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_decay:.4f} after odometry update.")
+        #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_lambda:.4f} after odometry update.")
 
     def get_delta_odom(self,msg):
 
@@ -690,10 +689,10 @@ class AMCMHLocalizer:
                 #print(f"[DEBUG] MH random walk stopped early at step {i} due to new odometry or scan update.")
                 break
 
-            #self.meta_xy *=  self.meta_decay
-            #self.meta_cos *=  self.meta_decay
-            #self.meta_sin *=  self.meta_decay
-            #self.meta_weights *=  self.meta_decay
+            #self.meta_xy *=  self.meta_lambda
+            #self.meta_cos *=  self.meta_lambda
+            #self.meta_sin *=  self.meta_lambda
+            #self.meta_weights *=  self.meta_lambda
 
             self.meta_xy +=  mh_xy * mh_weights[:, np.newaxis]
             self.meta_cos +=  mh_cos * mh_weights
@@ -999,12 +998,12 @@ class AMCMHLocalizer:
 
         Neff = np.sum(self.weights)**2 / np.sum(self.weights**2)
         #print(f"[DEBUG] Effective sample size (Neff): {Neff:.2f} | Threshold: {self.num_particles / 2.0:.2f}")
-        self.Neff_pub.publish(Float64(Neff))
+        self.Neff_pub.publish(Float64(Neff/self.num_particles))
 
         # 4. RESAMPLE: This is where KLD might change the size for the NEXT frame
         if self.use_adaptive:
             self.update_acml_weights(weights)
-            if Neff < self.num_particles / 1.0:
+            if Neff < self.num_particles / 2.0:
                 self.resample_amcl_kld()
                 self.num_particles = len(self.particles)
         else:
