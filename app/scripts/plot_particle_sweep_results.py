@@ -1232,35 +1232,36 @@ def plot_heatmap_internal(data_internal, plot_dir):
         for particle in list_particles:
             fig, ax = plt.subplots()
 
-            fig.figure(figsize=(8, 6))    
-            fig.title(f"Heatmap of RMSE for random_walk_steps_count x gamma for {particle}p")
+            fig.figsize=(8, 6)
+            ax.set_title(f"Heatmap of RMSE for random_walk_steps_count x gamma for {particle}p")
 
             list_nb_step = list(data_internal[config].keys()).copy()
             list_decay_factor = list(data_internal[config][list_nb_step[0]].keys()).copy()
             list_nb_step.sort()
             list_decay_factor.sort()
 
-            data = np.empty(len(list_nb_step), len(list_decay_factor))
+            data = np.empty((len(list_nb_step), len(list_decay_factor)))
 
             # data_internal[config][nb_steps_walk][decay_factor][particles] = (memo, cpu, rmse)
 
-            for i in len(list_nb_step):
-                for j in len(list_decay_factor):
-                    data[i, j] = np.mean(data_internal[config][list_nb_step[i]][list_decay_factor[j]][particle][plot_rmse])
+            for i in range(len(list_nb_step)):
+                for j in range(len(list_decay_factor)):
+                    data[i, j] = np.mean(data_internal[config][list_nb_step[i]][list_decay_factor[j]][particle]['rmse'])
 
             ax = sns.heatmap(
                 data=data,
                 annot=True,
-
+                xticklabels=list_decay_factor,
+                yticklabels=list_nb_step,
             )
-            ax.set(xlabel="", ylabel="")
+            ax.set(xlabel="Decay factor (gamma)", ylabel="Random walk steps count")
 
             plot_path = os.path.join(plot_dir, f"internal_heatmap_{particle}p.png")
             fig.tight_layout()
             fig.savefig(plot_path, dpi=200)
-            fig.close()
+            plt.close()
 
-        # data_internal[config][nb_steps_walk][decay_factor][particles] = (memo, cpu, rmse)
+    print(f"Internal heatmap plot saved at: {plot_dir}")
 
 
 def process_results_dir_internal(results_dir):
