@@ -1747,7 +1747,7 @@ def main():
         print(f"\nProcessing particle sweep plots in: {results_dir}")
 
         if 'internal' in results_dir:
-            process_results_dir_internal(results_dir, results_root)
+            process_results_dir_internal(results_dir)
         else:
             process_results_dir(results_dir, results_root)
 
