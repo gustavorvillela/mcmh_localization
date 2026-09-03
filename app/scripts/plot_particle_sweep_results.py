@@ -90,36 +90,29 @@ def extract_scenario(filename):
     # remove monitor_ prefix if present
     name = name.replace("monitor_", "")
 
-    # remove particle specification
-    name = re.sub(r'_\d+p_', '_', name)
+    # remove particle specification and what is after
+    name = re.sub(r'_\d+p_.*', '_', name)
 
     # remove algorithm names
     for algo in list_algos:
         name = name.replace("_" + algo, "")
 
-    # remove run index if present
-    name = re.sub(r'_run\d+', '', name)
-
     return name.strip("_")
 
 # Action: Extract witch run procude the result from the file name
 # I/ filename: String
-# O/ run: String
-# Necessity: A filename where every data is separate by "_" and where the run number is the last one
-# Produce: A string run wi9tch only contain the number of the run
+# O/ run: Integer | None
+# Produce: A string run which only contain the number of the run if in filename, None else
 def extract_run (filename) :
     '''
     Action: Extract witch run procude the result from the file name \\
     I/ filename: String \\
-    O/ run: String \\
-    Necessity: A filename where every data is separate by "_" and where the run number is the last one \\
-    Produce: A string run wi9tch only contain the number of the run
+    O/ run: Integer | None \\
+    Produce: A string run which only contain the number of the run if in filename, None else
     '''
 
-    name = filename.replace(".txt", "")
-    parts = name.split('_')
-    run = parts[-1]
-    return run.replace('run', '')
+    match = re.search(r'_run(\d+)_', filename)
+    return int(match.group(1)) if match else None
 
 def extract_rmse(filepath):
     rmse_pos = None
@@ -135,11 +128,30 @@ def extract_rmse(filepath):
         print(f"Erro lendo {filepath}: {e}")
     return rmse_pos, rmse_yaw
 
-def extract_random_steps(config_dir):
-    return config_dir.split('/')[-1]
+def extract_random_steps(filename):
+    '''
+    Action: Extract number of random walk from file name \\
+    I/ filename: String \\
+    O/ run: Integer | None \\
+    Produce: A Interger with the number of random step walk if in filename, None else
+    '''
+
+    match = re.search(r'_(\d+)rw_', filename)
+    return int(match.group(1)) if match else None
+
+def extract_decay_factor(filename):
+    '''
+    Action: Extract the decay factor from file name \\
+    I/ filename: String \\
+    O/ run: Integer | None \\
+    Produce: A Interger with the decay factor if in filename, None else
+    '''
+
+    match = re.search(r'_([0-9]+([.][0-9]*)?|[.][0-9]+)df', filename)
+    return float(match.group(1)) if match else None
 
 def extract_config(config_dir):
-    return config_dir.split('/')[-2]
+    return config_dir.split('/')[-1]
 
 def normalize_yaw(angle):
     return np.arctan2(np.sin(angle), np.cos(angle))
@@ -1335,9 +1347,7 @@ def process_results_dir(results_dir, results_root):
                 p: summarize_metric_bucket(p_dict[p])
                 for p in sorted(p_dict.keys())
             }
-            if algo == ALGO_SUPER:
-                get_data_super(results_dir, scenario, p_dict.keys(), data, data_metrics)
-        
+            
         # --- Plot everything for this scenario 
         pos_mean_plot_path = os.path.join(plots_dir, f"{scenario}_particle_sweep_rmse.png")
         plot_rmse(avg_data, scenario, pos_mean_plot_path, test="pos", stat="mean", styles=styles)
