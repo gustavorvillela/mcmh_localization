@@ -38,36 +38,33 @@ STYLE_MARKER = {
     50: '|',
     500: 'v',
     1000: '*',
-    2000: 'H',
+    2000: '.',
     2500: 'x',
     3000: 's',
     }
-ALGO_SUPER = '3MCL'
-STYLE_SUPER = {
-    'color':{
+STYLE_INTERNAL = {
+    'particles':{
         10:"#E69F00",
         50:"#56B4E9",
-        110:"#009E73",
-        120:"#F0E442",
-        130:"#0072B2",
-        140:"#D55E00",
-        150:"#CC79A7",
-        200:"#000000",
+        500:"#009E73",
+        1000:"#F0E442",
+        2000:"#0072B2",
+        2500:"#D55E00",
+        3000:"#CC79A7",
+        #200:"#000000",
     },
-    'marker':{
-
+    'rw':{
+        10: 'x',
         50: 'o',
-        60: 'x',
-        70: 's',
-        80: '^',
-        90: 'v',
-        100: '>',
-        110: '.',
-        120: '|',
-        130: 'v',
-        140: '*',
-        150: 'H',
-    }
+        80: '>',
+        100: 's',
+    },
+    'decay':{
+        0.1: '|',
+        0.5: '_',
+        0.8: '.',
+        1: '*',
+    },
 }
 
 def extract_particles(filename):
@@ -1237,7 +1234,7 @@ def process_results_dir(results_dir, results_root):
         "cpu_use": [],
         "memory_use": [],
         "time":None
-    }))))
+    }))))        
 
     for filename in os.listdir(results_dir):
         if not filename.endswith(".txt"):
