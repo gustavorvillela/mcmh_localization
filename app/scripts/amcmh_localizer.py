@@ -164,6 +164,7 @@ class AMCMHLocalizer:
             odom_sub = message_filters.Subscriber(self.odom_topic, Odometry)
             ts = message_filters.ApproximateTimeSynchronizer([scan_sub, odom_sub], queue_size=10, slop=0.1)
             ts.registerCallback(self.sync_callback)
+            self.odom_t_eps = 0
         else: # if 3MCL
             rospy.Subscriber(self.scan_topic, LaserScan, self.lidar_callback, queue_size=10, buff_size=2**24)
             rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=10, buff_size=2**24)
@@ -477,7 +478,7 @@ class AMCMHLocalizer:
         if not self.headless :
             self.publish_particles(msg.header.stamp)
 
-        end = time.time()
+        end = time.time() + self.odom_t_eps
 
         self.Time_cycle.publish(Float64(end - start))
 
@@ -516,6 +517,7 @@ class AMCMHLocalizer:
             #print(f"[DEBUG] Odometry update skipped: scan_ranges is None or accept_odom is False (accept_odom={self.accept_odom})")
             return
         
+        start_odom = time.time()
         #rospy.loginfo("Moving particles with odometry using particle prev")
         self.do_mh_random_walk = False  
         self.updated_dist = False  # Flag to indicate that we have not yet updated the meta distribution with the new odometry, so we should not perform the MH random walk in the lidar callback until we have done so, to ensure that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
@@ -573,6 +575,8 @@ class AMCMHLocalizer:
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_lambda:.4f} after odometry update, before MH random walk.")
         self.do_mh_random_walk = True  # Flag to indicate that we should perform MH random walk in the lidar callback after processing the new scan, so that the random walk is based on the updated meta distribution that incorporates the path history up to this point.
         self.mh_random_walk(mh_particles, mh_weights)
+
+        self.odom_t_eps = time.time() - start_odom 
         #print(f"[DEBUG] {self.N_count} MH random walk steps completed for current odometry update.")
         
         #print(f"[DEBUG] Meta distribution updated with decay factor {self.meta_lambda:.4f} after odometry update.")
