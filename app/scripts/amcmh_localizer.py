@@ -182,7 +182,7 @@ class AMCMHLocalizer:
 
         self.publish_particles()
         self.acc_rate.publish(Float64(1.0))
-        self.Neff_pub.publish(Float64(self.num_particles))
+        self.Neff_pub.publish(Float64(1.0))
         self._viz_count = 0
         
         rospy.spin()
