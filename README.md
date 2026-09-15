@@ -60,7 +60,7 @@ catkin_make
 source devel/setup.bash
 roslaunch mcmh_localization <your_launch_file>.launch
 ```
-## 5. Single-run simulations 
+## 🔁 5. Single-run simulations 
 
 ### 5.1. Running MH-MCL/3CML simulation
 
@@ -91,7 +91,7 @@ To replay an existing scenario bag for estimation run (choose params in same lau
 roslaunch mcmh_localization play_bag.launch 
 ```
 
-## 6. Batch simulations
+## 💾 6. Batch simulations
 
 ### 6.1. Internal Sweep
 
