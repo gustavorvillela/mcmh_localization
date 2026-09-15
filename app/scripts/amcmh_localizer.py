@@ -164,10 +164,10 @@ class AMCMHLocalizer:
             odom_sub = message_filters.Subscriber(self.odom_topic, Odometry)
             ts = message_filters.ApproximateTimeSynchronizer([scan_sub, odom_sub], queue_size=10, slop=0.1)
             ts.registerCallback(self.sync_callback)
-            self.odom_t_eps = 0
         else: # if 3MCL
             rospy.Subscriber(self.scan_topic, LaserScan, self.lidar_callback, queue_size=10, buff_size=2**24)
             rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback, queue_size=10, buff_size=2**24)
+            self.odom_t_eps = 0
 
         # Publishers
         self.pose_pub = rospy.Publisher('/mcmh_estimated_pose', PoseWithCovarianceStamped, queue_size=10)
